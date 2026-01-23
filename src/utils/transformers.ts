@@ -1,5 +1,5 @@
-import { parseISO, differenceInCalendarDays, isAfter } from 'date-fns';
-// import holidaysRaw from '../../holidays.json';
+import { parseISO, isAfter } from 'date-fns';
+import { calculateCycleTime } from './cycleTime';
 
 // Types
 export interface StatusSegment {
@@ -63,8 +63,8 @@ export function processIssueTimeline(issue: any): IssueTimeline {
       if (!statusItem) return null;
       return {
         date: parseISO(entry.created),
-        toStatus: statusItem.toString,
-        fromStatus: statusItem.fromString
+        toStatus: typeof statusItem.toString === 'string' ? statusItem.toString.trim() : statusItem.toString,
+        fromStatus: typeof statusItem.fromString === 'string' ? statusItem.fromString.trim() : statusItem.fromString
       };
     })
     .filter(Boolean)
@@ -77,7 +77,7 @@ export function processIssueTimeline(issue: any): IssueTimeline {
   // The initial status is tricky. Jira doesn't always explicitly say "Transitioned to To Do".
   // Usually the first transition 'fromString' tells us what the initial status was.
   // Or we assume 'To Do' / 'Open' if empty.
-  let currentStatus = changes.length > 0 ? changes[0].fromStatus : issue.fields.status.name;
+  let currentStatus = changes.length > 0 ? changes[0].fromStatus : issue.fields.status.name.trim();
   let cursor = created;
 
   for (const change of changes) {
@@ -87,7 +87,7 @@ export function processIssueTimeline(issue: any): IssueTimeline {
         status: currentStatus,
         start: cursor,
         end: change.date,
-        durationDays: differenceInCalendarDays(change.date, cursor) // Simple Calc for now
+        durationDays: calculateCycleTime(cursor, change.date)
       });
     }
     // Update cursor and status
@@ -100,19 +100,37 @@ export function processIssueTimeline(issue: any): IssueTimeline {
   // If it is Done, the cycle effectively ended at the last transition.
   // BUT for a Gannt chart, we want to see "Done" extending to now (or forever).
   // Let's cap "Done" at today for visualization purposes.
+  // For the active duration, we calculate up to Now.
   segments.push({
     status: currentStatus,
     start: cursor,
     end: new Date(), // Visual cutoff
-    durationDays: differenceInCalendarDays(new Date(), cursor)
+    durationDays: calculateCycleTime(cursor, new Date())
   });
 
   return {
     key: issue.key,
     summary: issue.fields.summary,
     segments,
-    totalCycleTime: segments.length // Placeholder
+    totalCycleTime: segments.reduce((sum, s) => sum + s.durationDays, 0)
   };
+}
+
+/**
+ * Filter segments by status and return a new timeline array
+ */
+export function filterTimelineStatuses(timelines: IssueTimeline[], ignoreStatuses: string[]): IssueTimeline[] {
+  const ignoreSet = new Set(ignoreStatuses.map(s => s.trim().toLowerCase()));
+  
+  return timelines.map(t => {
+    const filteredSegments = t.segments.filter(s => !ignoreSet.has(s.status.trim().toLowerCase()));
+    
+    return {
+      ...t,
+      segments: filteredSegments,
+      totalCycleTime: filteredSegments.reduce((sum, s) => sum + s.durationDays, 0)
+    };
+  });
 }
 
 export function processParentsAndChildren(rawData: { parent: any, children: any[] }): IssueTimeline[] {
@@ -122,3 +140,30 @@ export function processParentsAndChildren(rawData: { parent: any, children: any[
   // Return Parent first, then children
   return [parentTimeline, ...childrenTimelines];
 }
+
+/**
+ * Sorts timelines according to business rules:
+ * 1. Parent first (assumed index 0)
+ * 2. Children with data: sorted by earliest start date
+ * 3. Children without data: sorted by key (alphabetical)
+ */
+export function sortIssueTimelines(timelines: IssueTimeline[]): IssueTimeline[] {
+  if (timelines.length === 0) return [];
+  
+  const parent = timelines[0];
+  const children = timelines.slice(1);
+  
+  const withData = children.filter(c => c.segments.length > 0);
+  const withoutData = children.filter(c => c.segments.length === 0);
+  
+  withData.sort((a, b) => {
+    const startA = a.segments[0].start.getTime(); // Segments are already sorted by date in processIssueTimeline
+    const startB = b.segments[0].start.getTime();
+    return startA - startB;
+  });
+  
+  withoutData.sort((a, b) => a.key.localeCompare(b.key));
+  
+  return [parent, ...withData, ...withoutData];
+}
+

@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { AppShell, Burger, Group, Text, TextInput, Button, Container, Title, Paper, Alert, Stack } from '@mantine/core';
 import { useDisclosure } from '@mantine/hooks';
-import { processParentsAndChildren, IssueTimeline } from './utils/transformers';
+import { processParentsAndChildren, IssueTimeline, filterTimelineStatuses, sortIssueTimelines } from './utils/transformers';
 import { TimelineChart } from './components/TimelineChart';
 
 export default function App() {
@@ -23,7 +23,9 @@ export default function App() {
       if (result.success) {
         // Transform the raw data immediately
         const timelines = processParentsAndChildren(result.data);
-        setTimelineData(timelines);
+        const filtered = filterTimelineStatuses(timelines, ['To Do', 'Open', 'Backlog', 'Done', 'Resolved', 'Closed']);
+        const sorted = sortIssueTimelines(filtered);
+        setTimelineData(sorted);
       } else {
         setError(result.error || 'Unknown error occurred');
       }

@@ -67,3 +67,70 @@ This file tracks the evolution of the project. Copilot should update this file a
 * **Files Modified**: `.gitignore`
 * **Approach**: Added `jira-secrets.json` to `.gitignore` to prevent secret leakage.
 * **Outcome**: Verified successfully.
+
+## Date: 2026-01-22
+* **Goal**: Refine Visualization & Backfill Tests (TDD)
+* **Files Modified**: `src/utils/transformers.test.ts`, `src/utils/transformers.ts`, `src/components/TimelineChart.tsx`, `src/App.tsx`
+* **Approach**:
+    *   **TDD Step 1**: Added test case to `transformers.test.ts` ensuring "To Do" and "Done" are filtered out.
+    *   **Implementation**: Added `filterTimelineStatuses` function to `transformers.ts`.
+    *   **Visualization**: Updated `TimelineChart` to calculate ticks dynamically based on the time range (Days, Weeks, or Months) to avoid overcrowding.
+* **Outcome**: Chart now focuses on active work ("In Progress", "Review", etc.) and displays extensive date context on the X-axis.
+
+## Date: 2026-01-22
+* **Goal**: Fix Filtering & Improve Axis Ticks
+* **Files Modified**: `src/utils/display.ts` (New), `src/utils/display.test.ts` (New), `src/components/TimelineChart.tsx`, `src/App.tsx`
+* **Approach**:
+    *   **Monday Ticks**: Created `generateMondayTicks` helper function using TDD (wrote tests first).
+    *   **Chart Update**: Updated `TimelineChart.tsx` to use the new Monday-only tick generator.
+    *   **Filter Fix**: Expanded the ignore list in `App.tsx` to include "Open", "Backlog", "Resolved", and "Closed" to address the user's report of "To Do" persisting.
+* **Outcome**: `npm run verify` passed. Axis is cleaner, and filtering is more robust.
+
+## Date: 2026-01-22
+* **Goal**: Fix Persistent "To Do" Filter Bug
+* **Files Modified**: `src/utils/transformers.ts`, `src/utils/transformers.test.ts`
+* **Approach**:
+    *   Reproduced the issue with a test case involving whitespace/case sensitivity.
+    *   Updated `filterTimelineStatuses` to use case-insensitive matching and trim whitespace from both the status and the ignore list.
+    *   Updated `processIssueTimeline` to trim status strings extracted from raw Jira change history.
+* **Outcome**: `npm run verify` passed. The filtering logic is now strict about ignoring target statuses regardless of formatting quirks.
+
+## Date: 2026-01-22
+* **Goal**: Advanced Sorting & Cycle Time Calculation
+* **Files Modified**: `src/utils/cycleTime.ts` (new), `src/utils/cycleTime.test.ts` (new), `src/utils/transformers.ts`, `src/utils/transformers.test.ts`, `src/App.tsx`, `src/data/holidays.json`
+* **Approach**:
+    *   **Cycle Time**: Implemented `calculateCycleTime` to handle 9am-5pm Pacific work days, excluding weekends and holidays. Moved `holidays.json` to `src/data`. Validated with specific test cases provided by user.
+    *   **Sorting**: Added `sortIssueTimelines` to `transformers.ts`. Implements the 3-tier sort: Parent -> Children (by Start Time) -> Children (Empty, Alphabetical).
+    *   **Integration**: Updated `App.tsx` to sort after filtering. Updated `transformers.ts` to use new cycle time for duration calculation.
+* **Outcome**: `npm run verify` passed (13 tests total). Logic now aligns with sophisticated business rules for time accounting and display order.
+
+## Date: 2026-01-22
+* **Goal**: Add Stats Panel & Refine Number Formatting
+* **Files Modified**: `src/utils/formatting.ts` (new), `src/utils/formatting.test.ts` (new), `src/components/TimelineChart.tsx`
+* **Approach**:
+    *   **Formatting**: Created `formatWorkDays` to strictly enforce max 1 decimal place (or 0 if >=10) and append "work days". Covered by unit tests.
+    *   **UI/Layout**: Refactored `TimelineChart` to use a `Grid` layout (9/3 split). Added a right-hand Summary panel displaying:
+        *   Cycle Time (Total span in work days)
+        *   Calendar Time (Date range)
+        *   Longest Sub-task (Summary + Work days)
+        *   Last Sub-task (Summary + Work days)
+    *   **Tooltips**: Updated chart tooltips to use the new formatting helper.
+* **Outcome**: `npm run verify` passed (16 tests total). The visualization now includes a high-level executive summary of the cycle time metrics.
+
+## Date: 2026-01-22
+* **Goal**: Refine Stats Panel (Exclude Parent, Truncate Summary)
+* **Files Modified**: `src/components/TimelineChart.tsx`
+* **Approach**:
+    *   **Logic**: Updated `metrics` calculation to slice the `data` array (`data.slice(1)`) before calculating "Longest" and "Last" Stats, effectively excluding the parent issue (index 0).
+    *   **UI**: Switched summary text to use Mantine's `truncate` prop (single line + ellipsis) wrapped in a `Tooltip` component to show the full text on hover.
+    *   **Safety**: Added optional chaining and conditional rendering to handle cases with no subtasks safely.
+* **Outcome**: `npm run verify` passed. The panel now accurately reflects sub-task specific metrics without being skewed by the parent container story.
+
+## Date: 2026-01-22
+* **Goal**: Fix Cycle Time Calculation Calculation Bug
+* **Files Modified**: `src/utils/transformers.ts`, `src/utils/transformers.test.ts`
+* **Approach**:
+    *   **Diagnosis**: Identified that `filterTimelineStatuses` was removing segments correctly but preserving the original stale `totalCycleTime` calculated before filtering.
+    *   **Fix**: Updated `filterTimelineStatuses` to explicitly recalculate `totalCycleTime` by reducing the duration of the *remaining* filtered segments.
+    *   **Verification**: Added a regression test case `updates totalCycleTime after filtering` which confirmed the bug and verified the fix.
+* **Outcome**: `npm run verify` passed. Stats panel now correctly ignores "To Do", "Done" etc. in total counts.

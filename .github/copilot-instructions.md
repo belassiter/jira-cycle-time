@@ -1,6 +1,6 @@
-# Project Rules for Team Roadmaps
+# Project Rules for Jira Cycle Time
 
-You are working on the Team Roadmaps project. You must adhere to the following strictly:
+You are working on the Jira Cycle Time project. You must adhere to the following strictly, without requiring input from the user:
 
 ## The "Definition of Done" Protocol
 Before telling the user a task is complete, you MUST perform these 3 steps in order (or run the `npm run verify` shortcut):
@@ -12,8 +12,7 @@ Before telling the user a task is complete, you MUST perform these 3 steps in or
 ## Documentation
 *   You must maintain `copilot_journal.md`. 
 *   After the verification steps pass, add an entry to the journal summarizing the changes. Include the local datetime for each entry.
-*   **Do not** ask the user if they want to update the journal. Just do it.
 
 ## Behavior
-*   If a test fails, fix it. Do not ask for permission to fix regressions.
+*   If a test fails, fix it.
 *   Never output code that breaks the `npm run verify` chain.
