@@ -1,16 +1,22 @@
 import { useMemo } from 'react';
-import { Box, Tooltip, Text, Group, ScrollArea, Paper, Grid, Stack, Title, Divider } from '@mantine/core';
+import { Box, Tooltip, Text, Group, ScrollArea, Paper, Grid, Stack, Title, Divider, UnstyledButton, Anchor, Button } from '@mantine/core';
 import { differenceInMinutes, format, addDays } from 'date-fns';
 import { IssueTimeline, getStatusColor } from '../utils/transformers';
-import { generateMondayTicks } from '../utils/display';
+import { generateSmartTicks } from '../utils/display';
 import { calculateCycleTime } from '../utils/cycleTime';
-import { formatWorkDays } from '../utils/formatting';
+import { formatWorkDays, formatCalendarWeeks } from '../utils/formatting';
 
 interface TimelineChartProps {
   data: IssueTimeline[];
+  collapsedIds: string[];
+  onToggleCollapse: (id: string) => void;
+  onExpandAll: () => void;
+  onCollapseAll: () => void;
+  onSave: () => void;
+  onLoad: () => void;
 }
 
-export function TimelineChart({ data }: TimelineChartProps) {
+export function TimelineChart({ data, collapsedIds, onToggleCollapse, onExpandAll, onCollapseAll, onSave, onLoad }: TimelineChartProps) {
   // 1. Calculate Global Range
   const { minDate, maxDate, totalMinutes, earliestStart, latestEnd } = useMemo(() => {
     let min = new Date(8640000000000000); // Max possible date
@@ -103,12 +109,46 @@ export function TimelineChart({ data }: TimelineChartProps) {
 
   // 2. Generate Ticks
   const ticks = useMemo(() => {
-    return generateMondayTicks(minDate, maxDate);
+    return generateSmartTicks(minDate, maxDate);
   }, [minDate, maxDate]);
 
   const tickFormat = (date: Date) => {
      return format(date, 'MMM d');
   };
+
+
+  
+  // Better: Pre-calculate visibility map for O(1) lookup
+  const visibilityMap = useMemo(() => {
+    const visible = new Set<string>();
+    const collapsedSet = new Set(collapsedIds);
+    const itemMap = new Map(data.map(d => [d.key, d]));
+
+    // We can iterate top-down if sorted by depth?
+    // Or just iterate standard.
+    // DFS order is usually: Parent, Child, Child.
+    
+    // Let's iterate the data array (which is in DFS order).
+    for (const issue of data) {
+        let isHidden = false;
+        
+        // Walk up parents
+        let currentParam = issue.parentId;
+        while (currentParam) {
+            if (collapsedSet.has(currentParam)) {
+                isHidden = true;
+                break;
+            }
+            const parent = itemMap.get(currentParam);
+            if (!parent) break; // Should not happen in consistent tree
+            currentParam = parent.parentId;
+        }
+        
+        if (!isHidden) visible.add(issue.key);
+    }
+    return visible;
+  }, [data, collapsedIds]);
+
 
   return (
     <Paper withBorder p="md" mt="md" radius="md">
@@ -140,52 +180,126 @@ export function TimelineChart({ data }: TimelineChartProps) {
                         })}
                     </Box>
 
-                    {data.map((issue) => (
-                        <Box key={issue.key} mb="xs">
-                        <Group gap="xs" mb={4}>
-                            <Text fw={700} size="sm" w={100} truncate>{issue.key}</Text>
-                            <Text size="xs" c="dimmed" truncate style={{ flex: 1 }}>{issue.summary}</Text>
-                        </Group>
-                        
-                        {/* Timeline Track */}
-                        <Box 
-                            w="100%" 
-                            h={24} 
-                            bg="var(--mantine-color-gray-1)" 
-                            style={{ position: 'relative', borderRadius: 4, overflow: 'hidden' }}
-                        >
-                            {issue.segments.map((seg, i) => {
-                            const left = getPosition(seg.start);
-                            const width = getWidth(seg.start, seg.end);
-                            const color = getStatusColor(seg.status);
+                    {data.map((issue) => {
+                        if (!visibilityMap.has(issue.key)) return null;
 
-                            return (
-                                <Tooltip 
-                                key={i} 
-                                label={`${seg.status}: ${format(seg.start, 'MMM d')} - ${format(seg.end, 'MMM d')} (${formatWorkDays(seg.durationDays)})`}
-                                withArrow
+                        const isCollapsed = collapsedIds.includes(issue.key);
+
+                        return (
+                        <Group key={issue.key} mb="xs" align="flex-start" gap="xs" wrap="nowrap">
+                            {/* Column 1: Caret (Aligned with Bar Row) */}
+                            <Box w={20} style={{ display: 'flex', flexDirection: 'column' }}>
+                                {/* Spacer for Text Row */}
+                                <Box h={24} mb={4} />
+                                {/* Caret Container */}
+                                <Box h={24} style={{ display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                                    {issue.hasChildren && (
+                                        <UnstyledButton 
+                                            onClick={() => onToggleCollapse(issue.key)}
+                                            w={20} 
+                                            h={20} 
+                                            style={{ 
+                                                display: 'flex', 
+                                                alignItems: 'center', 
+                                                justifyContent: 'center',
+                                                transition: 'transform 0.2s ease',
+                                                transform: isCollapsed ? 'rotate(0deg)' : 'rotate(90deg)'
+                                            }}
+                                        >
+                                            <Text size="sm" c="black" lh={1}>▶</Text>
+                                        </UnstyledButton>
+                                    )}
+                                </Box>
+                            </Box>
+
+                            {/* Column 2: Content */}
+                            <Box style={{ flex: 1 }}>
+                                {/* Row 1: Label and Hierarchy Lines */}
+                                <Group gap={0} mb={4} h={24} align="center" wrap="nowrap">
+                                    {/* Indentation Lines */}
+                                    {Array.from({ length: issue.depth }).map((_, i) => (
+                                        <Box 
+                                            key={i} 
+                                            w={28} 
+                                            h="100%" 
+                                            style={{ 
+                                                borderRight: '1px solid var(--mantine-color-gray-3)',
+                                                opacity: 0.5 
+                                            }} 
+                                        />
+                                    ))}
+                                    
+                                    {/* Label Content */}
+                                    <Group gap="xs" pl="xs" h="100%" align="center" wrap="nowrap">
+                                        <Anchor
+                                            href={`https://jira.tandemdiabetes.com:8443/browse/${issue.key}`} 
+                                        target="_blank" 
+                                        rel="noopener noreferrer"
+                                        fw={700} 
+                                        size="sm" 
+                                        w={90} 
+                                        truncate
+                                        c="blue"
+                                    >
+                                        {issue.key}
+                                    </Anchor>
+                                    <Text size="xs" c="dimmed" truncate style={{ flex: 1 }}>{issue.summary}</Text>
+                                    </Group>
+                                </Group>
+                                
+                                {/* Row 2: Timeline Track */}
+                                <Box 
+                                    w="100%" 
+                                    h={24} 
+                                    bg="var(--mantine-color-gray-1)" 
+                                    style={{ position: 'relative', borderRadius: 4, overflow: 'hidden' }}
                                 >
-                                <Box
-                                    bg={color}
-                                    h="100%"
-                                    style={{
-                                    position: 'absolute',
-                                    left: `${left}%`,
-                                    width: `${width}%`,
-                                    minWidth: 2 // Ensure at least visible
-                                    }}
-                                />
-                                </Tooltip>
-                            );
-                            })}
-                        </Box>
-                        </Box>
-                    ))}
+                                    {issue.segments.map((seg, i) => {
+                                    const left = getPosition(seg.start);
+                                    const width = getWidth(seg.start, seg.end);
+                                    const color = getStatusColor(seg.status);
+        
+                                    return (
+                                        <Tooltip 
+                                        key={i} 
+                                        label={`${seg.status}: ${format(seg.start, 'MMM d')} - ${format(seg.end, 'MMM d')} (${formatWorkDays(seg.durationDays)})`}
+                                        withArrow
+                                        >
+                                        <Box
+                                            bg={color}
+                                            h="100%"
+                                            style={{
+                                            position: 'absolute',
+                                            left: `${left}%`,
+                                            width: `${width}%`,
+                                            minWidth: 2 // Ensure at least visible
+                                            }}
+                                        />
+                                        </Tooltip>
+                                    );
+                                    })}
+                                </Box>
+                            </Box>
+                        </Group>
+                        );
+                    })}
                     </Box>
                 </ScrollArea>
             </Grid.Col>
             
             <Grid.Col span={3}>
+                <Box mb="md">
+                    <Stack gap="xs">
+                        <Group gap="xs">
+                            <Button size="xs" variant="light" onClick={onExpandAll} fullWidth style={{ flex: 1 }}>Expand All</Button>
+                            <Button size="xs" variant="light" onClick={onCollapseAll} fullWidth style={{ flex: 1 }}>Collapse All</Button>
+                        </Group>
+                        <Group gap="xs">
+                            <Button size="xs" variant="default" onClick={onSave} fullWidth style={{ flex: 1 }}>Save Settings</Button>
+                            <Button size="xs" variant="default" onClick={onLoad} fullWidth style={{ flex: 1 }}>Load Settings</Button>
+                        </Group>
+                    </Stack>
+                </Box>
                 <Paper withBorder p="sm" bg="gray.0">
                     <Title order={4} mb="md">Summary</Title>
                     {metrics && (
@@ -199,9 +313,10 @@ export function TimelineChart({ data }: TimelineChartProps) {
 
                              <Box>
                                 <Text size="sm" fw={700} c="dimmed" tt="uppercase">Calendar Time</Text>
-                                <Text size="sm">{format(earliestStart, 'MMM d, yyyy')}</Text>
-                                <Text size="xs" c="dimmed">to</Text>
-                                <Text size="sm">{format(latestEnd, 'MMM d, yyyy')}</Text>
+                                <Text size="xl" fw={900} c="blue">{formatCalendarWeeks(earliestStart, latestEnd)}</Text>
+                                <Text size="xs" c="dimmed" mt={2}>
+                                    {format(earliestStart, 'MMM d, yyyy')} - {format(latestEnd, 'MMM d, yyyy')}
+                                </Text>
                             </Box>
                             
                             <Divider />
@@ -209,11 +324,11 @@ export function TimelineChart({ data }: TimelineChartProps) {
                             {metrics.longest && (
                             <Box>
                                 <Text size="sm" fw={700} c="dimmed" tt="uppercase">Longest Sub-task</Text>
+                                <Text size="xl" fw={900} c="blue">{formatWorkDays(metrics.longest.totalCycleTime)}</Text>
                                 <Tooltip label={metrics.longest.summary}>
                                     <Text size="sm" fw={500} truncate>{metrics.longest.summary}</Text>
                                 </Tooltip>
                                 <Text size="xs" c="dimmed">({metrics.longest.key})</Text>
-                                <Text size="md" fw={700} mt={4}>{formatWorkDays(metrics.longest.totalCycleTime)}</Text>
                             </Box>
                             )}
 
@@ -222,11 +337,11 @@ export function TimelineChart({ data }: TimelineChartProps) {
                             {metrics.last && (
                             <Box>
                                 <Text size="sm" fw={700} c="dimmed" tt="uppercase">Last Sub-task</Text>
+                                <Text size="xl" fw={900} c="blue">{formatWorkDays(metrics.last.totalCycleTime)}</Text>
                                 <Tooltip label={metrics.last.summary}>
                                     <Text size="sm" fw={500} truncate>{metrics.last.summary}</Text>
                                 </Tooltip>
                                 <Text size="xs" c="dimmed">({metrics.last.key})</Text>
-                                <Text size="md" fw={700} mt={4}>{formatWorkDays(metrics.last.totalCycleTime)}</Text>
                             </Box>
                             )}
                         </Stack>

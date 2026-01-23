@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { formatWorkDays } from './formatting';
+import { formatWorkDays, formatCalendarWeeks } from './formatting';
 
 describe('formatWorkDays', () => {
   it('formats small numbers with 1 decimal', () => {
@@ -18,3 +18,17 @@ describe('formatWorkDays', () => {
     expect(formatWorkDays(5)).toBe('5 work days');
   });
 });
+
+    describe('formatCalendarWeeks', () => {
+        it('calculates weeks correctly', () => {
+            const start = new Date('2023-01-01');
+            const end = new Date('2023-01-15'); // 14 days
+            expect(formatCalendarWeeks(start, end)).toBe('2.0 weeks');
+        });
+
+        it('handles rounding', () => {
+            const start = new Date('2023-01-01'); // Sunday
+            const end = new Date('2023-01-11'); // Wed (10 days) -> 1.42...
+            expect(formatCalendarWeeks(start, end)).toBe('1.4 weeks');
+        });
+    });

@@ -1,27 +1,72 @@
 import { describe, it, expect } from 'vitest';
-import { processIssueTimeline, filterTimelineStatuses, sortIssueTimelines } from './transformers';
+import { processIssueTimeline, filterTimelineStatuses, processParentsAndChildren } from './transformers';
 
 describe('processIssueTimeline', () => {
-  it('should create a timeline from basic issue data', () => {
-    const mockIssue = {
-      key: 'TEST-123',
-      fields: {
-        summary: 'Test Issue',
-        created: '2023-01-01T10:00:00.000Z',
-        status: { name: 'To Do' }
-      },
-      changelog: {
-        histories: []
-      }
-    };
+    it('should create a timeline from basic issue data', () => {
+        const mockIssue = {
+            key: 'TEST-123',
+            fields: {
+                summary: 'Test Issue',
+                created: '2023-01-01T10:00:00.000Z',
+                status: { name: 'To Do' }
+            },
+            changelog: {
+                histories: []
+            }
+        };
 
-    const result = processIssueTimeline(mockIssue);
+        const result = processIssueTimeline(mockIssue);
 
-    expect(result.key).toBe('TEST-123');
-    expect(result.segments.length).toBeGreaterThan(0);
-    // Should have at least one segment from Created -> Now
-    expect(result.segments[0].status).toBe('To Do');
-  });
+        expect(result.key).toBe('TEST-123');
+        expect(result.segments.length).toBeGreaterThan(0);
+        // Should have at least one segment from Created -> Now
+        expect(result.segments[0].status).toBe('To Do');
+    });
+
+    it('should handle "cleaned" data missing the fields wrapper', () => {
+        // Electron sends: { key, summary, status: 'To Do', created: ..., changelog: ... }
+        const cleanIssue = {
+            key: 'TEST-CLEAN',
+            summary: 'Clean Issue',
+            status: 'In Progress', // Direct property
+            created: '2023-01-01T10:00:00.000Z',
+            changelog: { histories: [] }
+        };
+
+        const result = processIssueTimeline(cleanIssue);
+        
+        expect(result.key).toBe('TEST-CLEAN');
+        expect(result.summary).toBe('Clean Issue');
+        expect(result.segments[0].status).toBe('In Progress');
+    });
+});
+
+describe('processParentsAndChildren', () => {
+    it('should flatten hierarchy and assign depth', () => {
+        const flatIssues = [
+            { key: 'EPIC-1', created: '2023-01-01', status: 'Open' },
+            { key: 'STORY-1', parentKey: 'EPIC-1', created: '2023-01-02', status: 'Open' },
+            { key: 'SUB-1', parentKey: 'STORY-1', created: '2023-01-03', status: 'Open' },
+            { key: 'EPIC-2', created: '2023-01-01', status: 'Open' } // Orphan sibling
+        ];
+
+        const result = processParentsAndChildren(flatIssues);
+
+        // Expected order: EPIC-1 -> STORY-1 -> SUB-1 -> EPIC-2
+        expect(result[0].key).toBe('EPIC-1');
+        expect(result[0].depth).toBe(0);
+        expect(result[0].hasChildren).toBe(true);
+
+        expect(result[1].key).toBe('STORY-1');
+        expect(result[1].depth).toBe(1);
+        expect(result[1].parentId).toBe('EPIC-1');
+
+        expect(result[2].key).toBe('SUB-1');
+        expect(result[2].depth).toBe(2);
+
+        expect(result[3].key).toBe('EPIC-2');
+        expect(result[3].depth).toBe(0);
+    });
 });
 
 describe('filterTimelineStatuses', () => {
@@ -30,6 +75,8 @@ describe('filterTimelineStatuses', () => {
       key: 'TEST-123',
       summary: 'Test',
       totalCycleTime: 0,
+      depth: 0,
+      hasChildren: false,
       segments: [
         { status: 'To Do', start: new Date('2023-01-01'), end: new Date('2023-01-02'), durationDays: 1 },
         { status: 'In Progress', start: new Date('2023-01-02'), end: new Date('2023-01-05'), durationDays: 3 },
@@ -48,6 +95,8 @@ describe('filterTimelineStatuses', () => {
       key: 'TEST-123',
       summary: 'Test',
       totalCycleTime: 0,
+      depth: 0,
+      hasChildren: false,
       segments: [
         { status: 'To Do', start: new Date('2023-01-01'), end: new Date('2023-01-02'), durationDays: 1 }
       ]
@@ -62,6 +111,8 @@ describe('filterTimelineStatuses', () => {
       key: 'TEST-2',
       summary: 'Test with messy statuses',
       totalCycleTime: 0,
+      depth: 0,
+      hasChildren: false,
       segments: [
         { status: ' To Do ', start: new Date(), end: new Date(), durationDays: 1 }, // Spaces
         { status: 'open', start: new Date(), end: new Date(), durationDays: 1 },    // Lowercase
@@ -80,6 +131,8 @@ describe('filterTimelineStatuses', () => {
       key: 'TEST-3',
       summary: 'Cycle Time Recalc',
       totalCycleTime: 10,
+      depth: 0,
+      hasChildren: false,
       segments: [
         { status: 'To Do', start: new Date(), end: new Date(), durationDays: 2 },
         { status: 'In Progress', start: new Date(), end: new Date(), durationDays: 5 },
@@ -95,29 +148,4 @@ describe('filterTimelineStatuses', () => {
   });
 });
 
-describe('sortIssueTimelines', () => {
-  it('correctly sorts timelines', () => {
-    // Parent
-    const parent = { key: 'PARENT-1', segments: [] } as any;
-    
-    // Children with data
-    const childEarly = { key: 'CHILD-1', segments: [{ start: new Date('2023-01-01') }] } as any;
-    const childLate = { key: 'CHILD-2', segments: [{ start: new Date('2023-01-05') }] } as any;
-    
-    // Children without data
-    const childNoDataA = { key: 'ALPHA-1', segments: [] } as any;
-    const childNoDataB = { key: 'BETA-1', segments: [] } as any;
-    
-    // Random input order
-    const input = [parent, childNoDataB, childLate, childEarly, childNoDataA];
-    
-    const sorted = sortIssueTimelines(input);
-    
-    // Expect: Parent, Early, Late, Alpha, Beta
-    expect(sorted[0].key).toBe('PARENT-1');
-    expect(sorted[1].key).toBe('CHILD-1');
-    expect(sorted[2].key).toBe('CHILD-2');
-    expect(sorted[3].key).toBe('ALPHA-1');
-    expect(sorted[4].key).toBe('BETA-1');
-  });
-});
+

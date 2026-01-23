@@ -14,13 +14,10 @@ export interface IssueTimeline {
   summary: string;
   segments: StatusSegment[];
   totalCycleTime: number; // Sum of relevant statuses
+  depth: number; // Hierarchy depth (0 = Root)
+  hasChildren: boolean;
+  parentId?: string;
 }
-
-// Config
-// const HOLIDAYS = new Set(holidaysRaw); // 'YYYY-MM-DD'
-// You might want to let the user configure which statuses count as "Cycle Time"
-// For now, we count everything except 'To Do' and 'Done' maybe?
-// Actually simpler: Just visualize everything first.
 
 const STATUS_COLORS: Record<string, string> = {
   'To Do': '#e9ecef',
@@ -48,14 +45,16 @@ export const getStatusColor = (status: string) => {
   return STATUS_COLORS[status] || '#868e96'; // Gray for unknown
 };
 
-/**
- * Parses the raw Jira Changelog into a continuous timeline of statuses
- */
-export function processIssueTimeline(issue: any): IssueTimeline {
-  const created = parseISO(issue.fields.created);
-  const history = issue.changelog?.histories || [];
+// ...
+export function processIssueTimeline(issue: any): Omit<IssueTimeline, 'depth' | 'hasChildren'> {
+    const created = typeof issue.created === 'string' ? parseISO(issue.created) : parseISO(issue.fields.created);
+    // Backend now returns 'changelog' at root of object for search results, or inside fields for single issue.
+    // Our updated backend normalization puts it at root.
+    const history = issue.changelog?.histories || issue.fields?.changelog?.histories || [];
+    const summary = typeof issue.summary === 'string' ? issue.summary : (issue.fields?.summary || 'No Summary');
   
   // 1. Extract all Status Changes
+
   // We need a flat list of changes: { date: Date, toStatus: string }
   const changes = history
     .flatMap((entry: any) => {
@@ -77,7 +76,15 @@ export function processIssueTimeline(issue: any): IssueTimeline {
   // The initial status is tricky. Jira doesn't always explicitly say "Transitioned to To Do".
   // Usually the first transition 'fromString' tells us what the initial status was.
   // Or we assume 'To Do' / 'Open' if empty.
-  let currentStatus = changes.length > 0 ? changes[0].fromStatus : issue.fields.status.name.trim();
+  let initialStatusRaw = 'Unknown';
+  if (changes.length > 0) {
+      initialStatusRaw = changes[0].fromStatus;
+  } else {
+     // Fallback to current status if no changes
+     initialStatusRaw = typeof issue.status === 'string' ? issue.status : issue.fields?.status?.name || 'Unknown';
+  }
+
+  let currentStatus = initialStatusRaw.trim();
   let cursor = created;
 
   for (const change of changes) {
@@ -110,7 +117,7 @@ export function processIssueTimeline(issue: any): IssueTimeline {
 
   return {
     key: issue.key,
-    summary: issue.fields.summary,
+    summary: summary, // Use local var
     segments,
     totalCycleTime: segments.reduce((sum, s) => sum + s.durationDays, 0)
   };
@@ -133,12 +140,68 @@ export function filterTimelineStatuses(timelines: IssueTimeline[], ignoreStatuse
   });
 }
 
-export function processParentsAndChildren(rawData: { parent: any, children: any[] }): IssueTimeline[] {
-  const parentTimeline = processIssueTimeline(rawData.parent);
-  const childrenTimelines = rawData.children.map(processIssueTimeline);
-  
-  // Return Parent first, then children
-  return [parentTimeline, ...childrenTimelines];
+export function processParentsAndChildren(flatIssues: any[]): IssueTimeline[] {
+    // 1. Convert all raw issues to Timeline objects (without hierarchy info yet)
+    const nodes = flatIssues.map(issue => {
+        const base = processIssueTimeline(issue);
+        return {
+            ...base,
+            parentKey: issue.parentKey, // Mapped by backend
+            key: issue.key
+        };
+    });
+
+    // 2. Build Tree Structure
+    // Find the one node that might be the "Root" of this specific view?
+    // Actually, JQL returns a forest.
+    // If we used "issue in childIssuesOf(X)", X is the root.
+    // But X might have a parent Y that is NOT in the list.
+    // So any node whose parent is NOT in the 'nodes' list is effectively a Root.
+    
+    const nodeMap = new Map(nodes.map(n => [n.key, n]));
+    const childrenMap = new Map<string, string[]>(); // ParentKey -> ChildKeys[]
+
+    nodes.forEach(node => {
+        if (node.parentKey && nodeMap.has(node.parentKey)) {
+            const existing = childrenMap.get(node.parentKey) || [];
+            existing.push(node.key);
+            childrenMap.set(node.parentKey, existing);
+        }
+    });
+
+    // 3. Find Roots (nodes with no parent in the dataset)
+    const roots = nodes.filter(n => !n.parentKey || !nodeMap.has(n.parentKey));
+    
+    // 4. Flatten Tree (DFS)
+    const flattened: IssueTimeline[] = [];
+    
+    function traverse(key: string, depth: number) {
+        const node = nodeMap.get(key);
+        if (!node) return;
+
+        const childrenKeys = childrenMap.get(key) || [];
+        
+        // Push current node
+        flattened.push({
+            ...node,
+            depth,
+            hasChildren: childrenKeys.length > 0,
+            parentId: node.parentKey
+        } as IssueTimeline);
+
+        // Sort children?
+        // Let's sort simply by key for now to be deterministic, 
+        // or by start date ideally but we need full objects for that.
+        const childNodes = childrenKeys.map(k => nodeMap.get(k)!).filter(Boolean);
+        // Optional: Sort childNodes by earliest segment start?
+        // childNodes.sort((a, b) => ...); 
+        
+        childNodes.forEach(child => traverse(child.key, depth + 1));
+    }
+
+    roots.forEach(root => traverse(root.key, 0));
+    
+    return flattened;
 }
 
 /**

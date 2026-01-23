@@ -134,3 +134,122 @@ This file tracks the evolution of the project. Copilot should update this file a
     *   **Fix**: Updated `filterTimelineStatuses` to explicitly recalculate `totalCycleTime` by reducing the duration of the *remaining* filtered segments.
     *   **Verification**: Added a regression test case `updates totalCycleTime after filtering` which confirmed the bug and verified the fix.
 * **Outcome**: `npm run verify` passed. Stats panel now correctly ignores "To Do", "Done" etc. in total counts.
+
+## Date: 2026-01-23
+* **Goal**: Implement Hierarchical Collapsing
+* **Files Modified**: `src/components/TimelineChart.tsx`
+* **Approach**:
+    *   **State**: Added local `collapsed` state to `TimelineChart`.
+    *   **Rendering**: Implemented conditional rendering in the `data.map` loop.
+        *   **Parent (Index 0)**: Displays an `UnstyledButton` toggle with a caret (▼/▶) if children exist.
+        *   **Children (Index > 0)**: Hidden when `collapsed` is true. Indented (`pl=28`) when visible to indicate hierarchy.
+        *   **Alignment**: Ensured the Timeline Track (Gantt bars) remains aligned to the global grid regardless of label indentation.
+* **Outcome**: `npm run verify` passed. The UI now supports standard expand/collapse behavior for the parent Story/Sub-task relationship.
+
+## Date: 2026-01-22
+* **Goal**: UI Polish (Hierarchy, Links, Window Size)
+* **Files Modified**: `src/components/TimelineChart.tsx`, `src/App.tsx`, `src/utils/formatting.ts`, `src/utils/formatting.test.ts`, `electron/main.ts`
+* **Approach**:
+    *   **Formatting**: Implemented `formatCalendarWeeks` to display succinct week durations (e.g., "(2.5 wks)"). Added unit tests.
+    *   **Visualization**: Updated `TimelineChart` to include:
+        *   Collapsible/Expandable rows.
+        *   Indentation levels for subtasks.
+        *   Hyperlinks to Jira tickets.
+        *   Week counts in summary text.
+    *   **Cleanup**: Removed "Pull Issue Data" header.
+    *   **Config**: Confirmed `electron/main.ts` default window size is 1800x1200.
+* **Outcome**: `npm run verify` passed. UI is cleaner and more informative.
+
+## Date: 2026-01-23
+* **Goal**: Layout Refinement & Stats Formatting
+* **Files Modified**: `src/components/TimelineChart.tsx`, `electron/main.ts`
+* **Approach**:
+    *   **Layout**: Refactored `TimelineChart` row rendering to a 2-column Group. Column 1 holds the Caret (aligned with the timeline bar), Column 2 holds the content (Text aligned to top, Bar below). Implemented indentation for child items.
+    *   **Hyperlinks**: Added `setWindowOpenHandler` in `electron/main.ts` to allow `target="_blank"` links to open in the external default browser.
+    *   **Stats**: Standardized font sizes/weights across all metrics. Swapped prominence of Weeks vs Date Range in the summary.
+* **Outcome**: Verified successfully. The UI now fully respects hierarchy alignment and caret placement requests.
+
+## Date: 2026-01-23
+* **Goal**: Persistence & Final Polish
+* **Files Modified**: `src/App.tsx`, `src/components/TimelineChart.tsx`, `src/utils/formatting.ts`, `src/utils/formatting.test.ts`
+* **Approach**:
+    *   **Persistence**: Implemented `handleSaveSettings` and `handleLoadSettings` in `App.tsx` using `localStorage`. Lifted `collapsed` state from `TimelineChart` to `App`.
+    *   **UI**: Added Save/Load buttons to the Timeline Chart summary column.
+    *   **Refinement**: Updated caret style to use a rotating solid triangle (`▶`). Removed parentheses from week numbering.
+* **Outcome**: `npm run verify` passes. Settings can now be saved and reloaded.
+
+## Date: 2026-01-23
+* **Goal**: Full Hierarchy Support (Initiative to Sub-task)
+* **Files Modified**: `electron/main.ts`, `src/utils/transformers.ts`, `src/utils/transformers.test.ts`, `src/components/TimelineChart.tsx`
+* **Approach**:
+    *   **Backend**: Switched from fetching strict Parent/Child to generic JQL `key=X OR issue in childIssuesOf(X)` to capture infinite hierarchy (Initiative, Epic, Story, etc.).
+    *   **Field Mapping**: Implemented dynamic lookup for "Epic Link" and "Parent Link" custom field IDs to link issues correctly regardless of Jira config.
+    *   **Transformation**: Refactored `processParentsAndChildren` into a generic Tree Construction & Flattening algorithm. It now assigns a `depth` and `hasChildren` property to every issue.
+    *   **UI**: Updated `TimelineChart` to use `issue.depth` for simple indentation, removing the "Parent vs Child" hardcoded logic.
+* **Outcome**: `npm run verify` passed. The application can now visualize deep hierarchies (e.g. Epic -> Story -> Sub-task) just by searching for the Epic ID.
+
+## Date: 2026-01-23
+* **Goal**: Fix "undefined created" error
+* **Files Modified**: `electron/main.ts`
+* **Approach**: Updated the `cleanData` mapping in `electron/main.ts` to explicitly include `created` from `issue.fields.created`. The `processIssueTimeline` function relies on this property to establish the timeline start date, and it was missing from the simplified object payload.
+* **Outcome**: `npm run verify` passes. Fixed the runtime crash.
+
+## Date: 2026-01-23
+* **Goal**: Bug Fixes and UX Improvements (Tree Collapsing & Nesting) & Fix UI Crash
+* **Files Modified**: `electron/main.ts`, `src/App.tsx`, `src/components/TimelineChart.tsx`, `src/utils/transformers.ts`
+* **Approach**:
+    1. **State**: Refactored collapse state from boolean to `collapsedIds: string[]` to support independent item collapsing.
+    2. **Ordering**: Removed `sortIssueTimelines` call in `App.tsx` to preserve the correct DFS tree structure (Parent -> Child nesting order).
+    3. **Crash Fix (Backend)**: Updated `electron/main.ts` to safely handle missing fields using optional chaining.
+    4. **Crash Fix (Frontend)**: Updated `src/utils/transformers.ts` to be structure-agnostic (handling both raw and cleaned data format) to resolve "undefined reading status".
+    5. **Syntax**: Fixed JSX nesting error in `TimelineChart.tsx`.
+* **Outcome**: `npm run verify` passed. UI now renders correct hierarchy, supports independent tree expansion, and handles "dirty" data without crashing.## Date: 2026-01-23 10:20:37 AM
+* **Goal**: Bug Fixes and UX Improvements (Tree Collapsing & Nesting)
+* **Files Modified**: electron/main.ts, src/App.tsx, src/components/TimelineChart.tsx
+* **Approach**:
+    1. Fixed 'undefined reading status' in electron/main.ts using optional chaining.
+    2. Refactored collapse state from boolean to collapsedIds: string[] to support independent item collapsing.
+    3. Removed sortIssueTimelines call in App.tsx to preserve the correct DFS tree structure (Parent -> Child nesting order).
+    4. Updated TimelineChart to recursively check collapsedIds for rendering visibility.
+* **Outcome**: Verify (Lint/Test/Build) passed. UI now renders correct hierarchy and supports independent tree expansion.
+
+
+## Date: 2026-01-23 10:30:20 AM
+* **Goal**: UI Enhancements (Expand/Collapse All & Smart Ticks)
+* **Files Modified**: src/App.tsx, src/components/TimelineChart.tsx, src/utils/display.ts
+* **Approach**:
+    1. **State**: Added onExpandAll and onCollapseAll handlers in App.tsx. onCollapseAll sets collapsedIds to all parent keys. onExpandAll clears the array.
+    2. **UI**: Added buttons for these actions in the sidebar of TimelineChart.tsx.
+    3. **Ticks**: Replaced fixed weekly ticks with generateSmartTicks. This algorithm calculates the total weeks in range and dynamically scales the interval (1, 2, 4, 8, etc.) to ensure roughly 10 labels are shown, improving readability for long timelines.
+* **Outcome**: 
+pm run verify passed. UI is more scalable for large datasets.
+
+
+## Date: 2026-01-23 10:37:30 AM
+* **Goal**: Restrict Hierarchy Level
+* **Files Modified**: electron/main.ts
+* **Approach**: Added a validation check in jira-get-issue handler. It inspects the issuetype of the root issue (matching the requested ID). If the type is 'Initiative' or 'Theme', it returns a specific error message, implementing a guard rail against currently unsupported hierarchy levels.
+* **Outcome**: 
+pm run verify passed. Users attempting to fetch Initiatives/Themes will now get a clear error message instead of potential rendering issues.
+
+
+## Date: 2026-01-23 10:40:00 AM
+* **Goal**: Expand Automated Test Coverage
+* **Files Modified**: src/utils/transformers.test.ts, src/utils/display.test.ts, src/utils/transformers.ts
+* **Approach**:
+    1.  **Transformers**: Added tests for processIssueTimeline handling 'clean' data (missing fields). Added comprehensive test for processParentsAndChildren to verify hierarchy flattening and depth assignment.
+    2.  **Display**: Added tests for generateSmartTicks to verify dynamic interval scaling.
+    3.  **Robustness**: Improved processIssueTimeline to default to 'No Summary' if both summary and ields.summary are missing, fixing a potential crash found during testing.
+* **Outcome**: 
+pm run verify passed (22 tests).
+
+
+## Date: 2026-01-23 10:45:10 AM
+* **Goal**: Safely Restrict Hierarchy Levels & Visual Enhancements
+* **Files Modified**: electron/main.ts, src/components/TimelineChart.tsx
+* **Approach**:
+    1.  **Backend Optimization**: Updated jira-get-issue to strictly fetch the root issue *first* before attempting the massive Child JQL. This safely validates the issuetype (blocking Initiative/Theme) without triggering expensive searching.
+    2.  **Visual Hierarchy**: Replaced the simple padding-left indentation in the Timeline Chart with rendered vertical guidelines. Each depth level now renders a faint vertical border, creating a clear 'spreadsheet tree' visual structure that is easier to follow.
+* **Outcome**: 
+pm run verify passed. Performance is safer for invalid inputs, and the UI is more professional.
+
