@@ -11,12 +11,16 @@ export interface StatusSegment {
 
 export interface IssueTimeline {
   key: string;
+  url?: string;
   summary: string;
+  issueType?: string;
+  issueTypeIconUrl?: string;
   segments: StatusSegment[];
   totalCycleTime: number; // Sum of relevant statuses
   depth: number; // Hierarchy depth (0 = Root)
   hasChildren: boolean;
   parentId?: string;
+  subRows?: IssueTimeline[]; // For Tree Data tables
 }
 
 const STATUS_COLORS: Record<string, string> = {
@@ -52,6 +56,7 @@ export function processIssueTimeline(issue: any): Omit<IssueTimeline, 'depth' | 
     // Our updated backend normalization puts it at root.
     const history = issue.changelog?.histories || issue.fields?.changelog?.histories || [];
     const summary = typeof issue.summary === 'string' ? issue.summary : (issue.fields?.summary || 'No Summary');
+    const issueType = issue.fields?.issuetype?.name || issue.issueType || 'Unknown';
   
   // 1. Extract all Status Changes
 
@@ -117,7 +122,10 @@ export function processIssueTimeline(issue: any): Omit<IssueTimeline, 'depth' | 
 
   return {
     key: issue.key,
+    url: issue.url,
     summary: summary, // Use local var
+    issueType,
+    issueTypeIconUrl: issue.issueTypeIconUrl,
     segments,
     totalCycleTime: segments.reduce((sum, s) => sum + s.durationDays, 0)
   };
@@ -204,20 +212,67 @@ export function processParentsAndChildren(flatIssues: any[]): IssueTimeline[] {
     return flattened;
 }
 
+export function buildIssueTree(flatIssues: IssueTimeline[]): IssueTimeline[] {
+    console.log(`[buildIssueTree] Input: ${flatIssues.length} issues`);
+    const itemMap = new Map<string, IssueTimeline>();
+    const roots: IssueTimeline[] = [];
+
+    // 1. Clone items to avoid mutating original flat list references if used elsewhere
+    // and initialize subRows
+    flatIssues.forEach(issue => {
+        itemMap.set(issue.key, { ...issue, subRows: [] });
+    });
+
+    let matched = 0;
+    let orphaned = 0;
+
+    // 2. Build Tree
+    itemMap.forEach(issue => {
+        if (issue.parentId && itemMap.has(issue.parentId)) {
+            const parent = itemMap.get(issue.parentId);
+            if (parent) {
+                parent.subRows = parent.subRows || [];
+                parent.subRows.push(issue);
+                matched++;
+            }
+        } else {
+            roots.push(issue);
+            if (issue.parentId) orphaned++;
+        }
+    });
+
+    // Clean up empty subRows to avoid MRT confusion
+    itemMap.forEach(issue => {
+        if (issue.subRows && issue.subRows.length === 0) {
+            delete issue.subRows;
+        }
+    });
+
+    console.log(`[buildIssueTree] Roots: ${roots.length}, Matched Children: ${matched}, Orphans (parentId set but parent missing): ${orphaned}`);
+    
+    // Sort roots and children
+    roots.forEach(sortRecursively);
+    return sortIssueTimelines(roots); // Sort roots themselves
+}
+
+function sortRecursively(node: IssueTimeline) {
+    if (node.subRows && node.subRows.length > 0) {
+        node.subRows = sortIssueTimelines(node.subRows);
+        node.subRows.forEach(sortRecursively);
+    }
+}
+
+
 /**
- * Sorts timelines according to business rules:
- * 1. Parent first (assumed index 0)
- * 2. Children with data: sorted by earliest start date
- * 3. Children without data: sorted by key (alphabetical)
+ * Sorts timelines:
+ * 1. Items with data: sorted by earliest start date
+ * 2. Items without data: sorted by key (alphabetical)
  */
 export function sortIssueTimelines(timelines: IssueTimeline[]): IssueTimeline[] {
   if (timelines.length === 0) return [];
   
-  const parent = timelines[0];
-  const children = timelines.slice(1);
-  
-  const withData = children.filter(c => c.segments.length > 0);
-  const withoutData = children.filter(c => c.segments.length === 0);
+  const withData = timelines.filter(c => c.segments.length > 0);
+  const withoutData = timelines.filter(c => c.segments.length === 0);
   
   withData.sort((a, b) => {
     const startA = a.segments[0].start.getTime(); // Segments are already sorted by date in processIssueTimeline
@@ -227,6 +282,6 @@ export function sortIssueTimelines(timelines: IssueTimeline[]): IssueTimeline[] 
   
   withoutData.sort((a, b) => a.key.localeCompare(b.key));
   
-  return [parent, ...withData, ...withoutData];
+  return [...withData, ...withoutData];
 }
 

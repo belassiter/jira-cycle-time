@@ -115,6 +115,7 @@ ipcMain.handle('jira-get-issue', async (_event, issueId: string) => {
     const issues = await searchJiraIssues(jql, secrets);
 
     // 3. Map to a clean format for frontend
+    const cleanHost = secrets.host.replace(/^https?:\/\//, '').replace(/\/$/, '');
     const cleanData = issues.map((issue: any) => {
       let parentKey = issue.fields.parent?.key;
       
@@ -132,10 +133,12 @@ ipcMain.handle('jira-get-issue', async (_event, issueId: string) => {
 
       return {
         key: issue.key,
+        url: `https://${cleanHost}/browse/${issue.key}`,
         summary: issue.fields.summary || '',
         status: issue.fields.status?.name || 'Unknown',
         created: issue.fields.created,
         issueType: issue.fields.issuetype?.name || 'Unknown',
+        issueTypeIconUrl: issue.fields.issuetype?.iconUrl,
         parentKey: parentKey,
         changelog: issue.changelog
       };

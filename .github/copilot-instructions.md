@@ -11,7 +11,7 @@ Before telling the user a task is complete, you MUST perform these 3 steps in or
 
 ## Documentation
 *   You must maintain `copilot_journal.md`. 
-*   After the verification steps pass, add an entry to the journal summarizing the changes. Include the local datetime for each entry.
+*   After the verification steps pass, add an entry to the journal summarizing the changes, using standard file editing commands. Do not use terminal commands. Include the date and time for each entry.
 
 ## Behavior
 *   If a test fails, fix it.

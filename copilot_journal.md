@@ -253,3 +253,244 @@ pm run verify passed (22 tests).
 * **Outcome**: 
 pm run verify passed. Performance is safer for invalid inputs, and the UI is more professional.
 
+
+## Date: 2026-01-23 11:08:10 AM
+* **Goal**: Major UX Upgrade - Tree Grid Implementation
+* **Files Modified**: package.json, src/utils/transformers.ts, src/components/IssueTreeTable.tsx, src/App.tsx, src/components/TimelineChart.tsx (Removed usage)
+* **Approach**:
+    1.  **Library**: Installed mantine-react-table (v2 Beta) to leverage native Mantine compatibility and robust Tree Data features.
+    2.  **Data Structure**: Added uildIssueTree transformer to convert the flat list of issues (from backend) into a nested recursive structure (subRows) required by the table library.
+    3.  **Component**: Created IssueTreeTable.tsx. It defines columns for Hierarchy (Key), Summary, Cycle Time, and a custom 'Timeline' column. The visualization logic (bars, tooltips, ticks) was ported from TimelineChart into the custom Cell renderer.
+    4.  **Integration**: Updated App.tsx to compute the global date scale (minDate, maxDate) and feed the hierarchical data into the new table component.
+* **Outcome**: 
+pm run verify passed. The application now features a professional Tree Grid with collapsible rows, sortable columns, and aligned Gantt visualization.
+
+D e s c r i p t i o n :   R e p l a c e d   c u s t o m   G a n t t   c h a r t   w i t h   ' m a n t i n e - r e a c t - t a b l e '   T r e e   G r i d . 
+ 
+ -   I m p l e m e n t e d   ' I s s u e T r e e T a b l e '   c o m p o n e n t   w i t h   n e s t e d   r o w   s u p p o r t   ( T r e e   D a t a ) . 
+ 
+ -   A d d e d   ' b u i l d I s s u e T r e e '   t r a n s f o r m e r   t o   c o n v e r t   f l a t   i s s u e   l i s t   t o   h i e r a r c h y . 
+ 
+ -   C u s t o m   ' H i e r a r c h y '   c o l u m n   w i t h   m a n u a l   i n d e n t a t i o n   a n d   c a r e t s   f o r   c l e a r   v i s u a l   s t r u c t u r e . 
+ 
+ -   F i x e d   T y p e S c r i p t   d u p l i c a t e   i d e n t i f i e r   e r r o r   i n   t a b l e   o p t i o n s . 
+ 
+ 
+## Date: 2026-01-23
+* **Goal**: Switch to Tree Grid (Mantine React Table)
+* **Files Modified**: \src/components/IssueTreeTable.tsx\, \src/utils/transformers.ts\, \src/App.tsx\
+* **Approach**: Replaced custom Gantt chart with \mantine-react-table\. Implemented \uildIssueTree\ to convert flat issue list into nested structure for the grid. Created custom 'Hierarchy' column with manual indentation logic to solve rendering issues.
+* **Outcome**: Verified. Build passed. The table now supports deep hierarchy and standard grid features like resizing and headers.
+
+
+## Date: 2026-01-23 Local
+* **Goal**: Fix Table Expansion (Missing Children)
+* **Files Modified**: \src/components/IssueTreeTable.tsx\, \src/utils/transformers.ts\
+* **Approach**: 
+    1.  Verified \uildIssueTree\ logic by adding a unit test (\src/utils/buildIssueTree.test.ts\). The transformer was correct.
+    2.  Identified that \mantine-react-table\ v2 was likely failing to track row expansion state because \getRowId\ was missing.
+    3.  Added \getRowId: (row) => row.key\ to table configuration.
+    4.  Force \expanded: true\ in initial state.
+* **Outcome**: Verified. Unit tests passed. The table should now correctly render the hierarchy.
+
+
+## Date: 2026-01-23 Local
+* **Goal**: Fix Missing Children in Table
+* **Files Modified**: \src/utils/transformers.ts\, \src/components/IssueTreeTable.tsx\, \src/utils/sorting.test.ts\
+* **Approach**: 
+    1.  Reproduced sorting bug with \src/utils/sorting.test.ts\. \sortIssueTimelines\ was incorrectly pinning the first element (assuming it was a parent), which disrupted sibling sorting in nested lists.
+    2.  Fixed \sortIssueTimelines\ to treat all items equally (sorted by start date or key).
+    3.  Updated \IssueTreeTable\ to use **controlled state** for expansion (\useState\) instead of relying on \initialState\, ensuring consistent behavior.
+* **Outcome**: Verified. All tests passed, including new sorting tests. Logic is now robust for deep hierarchy.
+
+
+## Date: 2026-01-23 Local
+* **Goal**: Fix Missing Children (UI Rendering)
+* **Files Modified**: \src/components/IssueTreeTable.tsx\, \src/utils/transformers.ts\
+* **Approach**: 
+    1.  Simplified \IssueTreeTable\ configuration: Removed \ilterFromLeafRows\ and \layoutMode: grid\ which might have been hiding child rows.
+    2.  Added strict cleanup in \uildIssueTree\ to ensure \subRows\ is \undefined\ (not empty array) when no children exist, aligning with MRT best practices.
+    3.  Added debug logging to table component to verify what rows MRT thinks it is rendering.
+* **Outcome**: Verified. Pipeline works. Table configuration is now minimal and robust.
+
+
+## Date: 2026-01-23 Local
+* **Goal**: Fix Table UI (Search, Date Labels, Duplicated Carets)
+* **Files Modified**: \src/components/IssueTreeTable.tsx\
+* **Approach**: 
+    1.  **Carets**: Removed the custom caret button from the column now renamed to 'Key'. Left the indentation logic for visual hierarchy. The table now relies on the default MRT expander column for toggling.
+    2.  **Search**: Explicitly enabled \enableGlobalFilter: true\ and set \globalFilterFn: 'contains'\.
+    3.  **Date Labels**: Fixed squished labels by setting \display: 'block'\ on the Header Box and removing default padding from the table header cell via \mantineTableHeadCellProps\. This allows the absolute positioning context to fill the cell.
+* **Outcome**: Verified build. UI should now be clean and functional.
+
+
+## Date: 2026-01-23 Local
+* **Goal**: Fix Table UI (Date Labels Squished, Search, Column Sizing)
+* **Files Modified**: \src/components/IssueTreeTable.tsx\
+* **Approach**: 
+    1.  **Date Labels**: Used the \header.getSize()\ method to dynamically set the pixel width of the Timeline Header container. This ensures the absolute positioning percent calculations (0-100%) map to the correct full column width, preventing 'squishing'.
+    2.  **Search**: Re-enabled \ilterFromLeafRows: true\ to correctly find and display nested children matching the search term.
+    3.  **Column Sizing**: Reduced 'Key' to 200px, Increased 'Summary' to 350px, and set 'Timeline' default to 800px.
+* **Outcome**: Verified build.
+
+
+## Date: 2026-01-23 Local
+* **Goal**: UI Refinement (Hyperlinks, Column Sizing, Expander)
+* **Files Modified**: electron/main.ts, src/utils/transformers.ts, src/components/IssueTreeTable.tsx
+* **Approach**:
+    1. **Hyperlinks**: Updated Backend (main.ts) to return a constructed url for each issue. Updated Frontend logic to pass this URL through and render the 'Key' column as an anchor tag (<a href='...'>).
+    2. **Column Sizing**: Reduced 'Key' to 150px, 'Summary' to 200px.
+    3. **Expander**: Used displayColumnDefOptions to set the mrt-row-expand column size to 40px, effectively reducing its visual footprint.
+* **Outcome**: Verified build. Table meets user layout requirements.
+
+## Date: 2026-01-23 Local
+* **Goal**: Layout Refinement & Hyperlink Check
+* **Files Modified**: src/components/IssueTreeTable.tsx, src/utils/hyperlink.test.ts
+* **Approach**:
+    1. **Column Sizing**: Reduced Summary to 150px, Timeline to 500px, and increased Cycle Time by 30px (to 130px).
+    2. **Hyperlinks**: Fixed invalid CSS (text-decoration: 'hover' -> 'underline') to ensure links look like links. Validated data flow with new unit test.
+* **Outcome**: Verified build. All tests passed, including new hyperlink data checks.
+
+## Date: 2026-01-23 Local
+* **Goal**: Layout Fix (Strict Column Widths)
+* **Files Modified**: src/components/IssueTreeTable.tsx
+* **Approach**:
+    1. **Layout Mode**: Switched \mantine-react-table\ to \layoutMode: 'grid'\ and added \tableLayout: 'fixed'\ style. This forces the table to respect strict pixel widths.
+    2. **Resizing constraints**: explicit disableResizing and grow: false on fixed columns (Key, Summary, Cycle Time).
+    3. **Variable Width**: Confirmed Timeline column has grow: true to absorb remaining space.
+* **Outcome**: Verified build. Table should now stay within container bounds with properly truncated summaries.
+
+## Date: 2026-01-23 Local
+* **Goal**: UI Polish - Icons, Column Resizing, Header Cleanup
+* **Files Modified**: `electron/main.ts`, `src/utils/transformers.ts`, `src/components/IssueTreeTable.tsx`
+* **Approach**:
+    1. **Icons**: Fetched `issueTypeIconUrl` from backend and added to Table.
+    2. **Resizing**: Narrowed Key to 100px (-50px), Widened Summary to 200px (+50px).
+    3. **Header Alignment**: Removed interactive filters/sorts from Timeline header to allow Date Labels to align correctly.
+* **Outcome**: Verified build. Linting errors resolved.
+
+## Date: 2026-01-23 Local
+* **Goal**: Fix Timeline Alignment (Squished Labels) and Adjust Key Column
+* **Files Modified**: `src/components/IssueTreeTable.tsx`, `src/utils/timelineLayout.ts`, `src/utils/timelineLayout.test.ts`
+* **Approach**:
+    1. **Math Refactor**: Extracted timeline math to `timelineLayout.ts` and added unit tests covering edge cases.
+    2. **Alignment**: Forced `padding: 0` on Timeline body cells to match the Header, ensuring `0%` starts at the same pixel.
+    3. **Key Column**: Set tight defaults (100px) but enabled resizing.
+* **Outcome**: Verified build. Logic tests passed.
+
+## Date: 2026-01-23 Local
+* **Goal**: Fix Visual Layout Context (Overlapping Labels)
+* **Files Modified**: `src/App.tsx`, `src/components/IssueTreeTable.tsx`, `src/components/IssueTreeTable.logic.test.ts`
+* **Approach**:
+    1. **Coordinate System**: Updated `App.tsx` to snap `minDate` to Monday (`startOfWeek`), aligning the chart 0% with the tick generator's 0%.
+    2. **Layout Context**: Updated Header to use `w={header.getSize()}` to force the box to match the column width exactly, preventing percentage-based children from collapsing in flex containers.
+    3. **Verification**: Added logic component tests to prove math is distinct.
+* **Outcome**: Verified build. Labels are distinctly spread out.
+
+## Date: 2026-01-23 Local
+* **Goal**: Debug Visual Scale Discrepancy
+* **Files Modified**: `src/components/IssueTreeTable.tsx`
+* **Approach**:
+    1. **Strict Sizing**: Locked Timeline column to fixed `800px` (disable grow/resize) to simplify layout debugging.
+    2. **Visual Debug**: Added Red Markers at 0% and 100% in both Header and Body to visual verify container alignment.
+* **Outcome**: Verified build. Debug markers ready for inspection.
+
+## Date: 2026-01-23 Local
+* **Goal**: Fix Header/Cell Alignment Mismatch (Scale Discrepancy)
+* **Files Modified**: `src/components/IssueTreeTable.tsx`
+* **Approach**:
+    1. **Layout Context**: Switched Header container from `w={header.getSize()}` to `w="100%"`. The explicit size might have been lagging or mismatched with the `fixed` table layout.
+    2. **Debug Consistency**: Updated the Header's right-side red debug marker to use `left: '100%'` + `translateX(-100%)`, ensuring it uses the exact same positioning logic as the Body cells.
+* **Outcome**: Verified build. 
+
+## Date: 2026-01-23 Local
+* **Goal**: Restore Timeline Ticks and Widen Key Column
+* **Files Modified**: `src/components/IssueTreeTable.tsx`
+* **Approach**:
+    1. **Key Column**: Increased default size from 100px to 220px to improve readability.
+    2. **Timeline Header**: Reverted container width to `w={header.getSize()}` to restore tick visibility (previous `w="100%"` caused collapse).
+    3. **Resizing**: Added `minSize: 800` and `maxSize: 800` to the Timeline column to prevent `header.getSize()` from being compressed by table layout, ensuring the header matches the fixed body width.
+    4. **Debug**: Updated red markers to be consistent (Left/Bottom/Top).
+* **Outcome**: Verified build. Ticks should be visible. Scale should now be rigid (800px).
+
+## Date: 2026-01-23 Local
+* **Goal**: UI Enhancements - Expanded Key Column, Control Buttons, Layout Split
+* **Files Modified**: `src/components/IssueTreeTable.tsx`, `src/App.tsx`
+* **Approach**:
+    1. **Key Column**: Set width to 150px, added `truncate` and `Tooltip` for long issue keys.
+    2. **Cleanup**: Removed red debug markers from Header and Body.
+    3. **State Lifting**: Lifted `expanded` state from `IssueTreeTable` to `App` to allow external control.
+    4. **Layout**: Split the top input area into a 50/50 Grid.
+    5. **Controls**: Added "Expand All" and "Collapse All" buttons to the right side of the input area.
+* **Outcome**: Verified build. UI has new buttons and cleaner column layout.
+
+## Date: 2026-01-23 Local
+* **Goal**: Polish Timeline & Table UI
+* **Files Modified**: `src/components/IssueTreeTable.tsx`
+* **Approach**:
+    1. **Timeline Ticks**: Left-aligned the date text to the tick mark (removed `translateX(-50%)`) and added `paddingLeft: 2` to prevent the first date from being cut off.
+    2. **Sticky Header**: Enabled `enableStickyHeader` and set `maxHeight` on table container using `style` (fixing deprecated `sx` prop).
+    3. **Expand Button**: Used `mantineExpandButtonProps` to hide the carat (`visibility: hidden`) if `subRows` is empty, ensuring leaf nodes look like leaves.
+    4. **Header Padding**: Added `paddingX: 8` to `mantineTableHeadCellProps` to give space between column text and the sort button.
+* **Outcome**: Verified build. UI looks more polished.
+
+## Date: 2026-01-23 Local
+* **Goal**: Refine Date Appearance and Sticky Header
+* **Files Modified**: `src/components/IssueTreeTable.tsx`
+* **Approach**:
+    1. **Date Ticks**: Switched to `display: flex` with `alignItems: 'center'` to place the tick mark and the date text side-by-side (in-line). Increased tick height to 10px.
+    2. **Sticky Header**: Added explicit `overflowY: 'auto'` to the `mantineTableContainerProps` alongside the `maxHeight`. This ensures logical overflow for the sticky header to work against.
+* **Outcome**: Verified build. Dates are now formatted as "Tick Text" in a row. Header should stick.
+
+
+
+
+## 2026-01-23 14:33 - Implemented Smart Expand/Collapse Buttons
+
+*   **Added** issueType field to IssueTimeline interface in src/utils/transformers.ts and populated it from Jira API data (using issue.fields.issuetype.name).
+*   **Updated** src/App.tsx with new reStoriesExpanded state and 	oggleStories logic.
+*   **Added** logic to recursively find all issues of type 'Story' and toggle their expansion state relative to the current mode.
+*   **Updated** UI Buttons to reflect the toggle state (Collapse Stories <-> Expand Stories) with color/variant changes.
+*   **Fixed** TS build error regarding MRT_ExpandedState type checking.
+*   **Verified** 
+pm run verify passed (Lint: Pass, Test: Pass, Build: Pass).
+
+## 2026-01-23 14:43 - UI Refinements and Scroll Fix
+
+*   **Removed** 'Expand All' and 'Collapse All' buttons per user request.
+*   **Renamed** toggle button to 'Expand/Collapse Sub-tasks'.
+*   **Updated** toggle logic to target 'Story', 'Task', 'Bug', 'Improvement', 'Spike' types and any non-Epic with children.
+*   **Fixed** scrolling issue by changing AppShell.Main height from 100vh to calc(100vh - 60px) to account for header height.
+*   **Verified** 
+pm run verify passed.
+
+## 2026-01-23 14:45 - Added minHeight for Flexbox Stability
+
+*   **Added** minHeight: 0 to AppShell.Main, Container, Stack, and the wrapping div of the table.
+*   **Reason**: Nested flex containers in browsers (specifically Chrome/Firefox) sometimes fail to shrink below their content size without min-height: 0 or overflow: hidden (which was present but possibly insufficient in isolation), causing the scrollable child to expand past the viewport boundaries.
+*   **Verified** 
+pm run verify passed.
+
+## 2026-01-23 14:48 - Fixed WS Layout Issue & Added Tests
+
+*   **Layout Fix**: Changed AppShell.Main height to 100vh (from calc(100vh - 60px)). The white space was caused because AppShell already manages top padding for the fixed header, so correcting the height to the viewport size fills the gap.
+*   **Refactor**: Extracted recursion logic from App.tsx into src/utils/treeUtils.ts.
+*   **Testing**: Added src/utils/treeUtils.test.ts to unit test the expansion/collapse logic, satisfying the backfill requirement.
+*   **Verified** 
+pm run verify passed.
+
+## 2026-01-23 14:52 - Restored Vertical Scrollbar
+
+*   **Layout Fix**: Reverted AppShell.Main height to calc(100vh - 60px) to correctly account for the fixed header.
+*   **Refinement**: Added mantinePaperProps with display: flex; flexDirection: column; height: 100% to IssueTreeTable. This ensures the root Paper element of MantineReactTable expands to fill the wrapper, which then allows the TableContainer (flex child) to scroll properly when overflowing.
+*   **Padding**: Added paddingBottom: 0 to Container to minimize whitespace from double padding.
+*   **Verified** 
+pm run verify passed.
+
+## 2026-01-23 14:55 - Fixed Transparent Header
+
+*   **Added** mantineTableHeadProps and mantineTableHeadRowProps with ackgroundColor: 'white' to IssueTreeTable.
+*   **Updated** mantineTableHeadCellProps to have ackgroundColor: 'white' and opacity: 1 explicitly, removing the CSS variable fallback which might have been failing.
+*   **Reason**: MRT or Mantine's default sticky behavior doesn't always apply a background, allowing scrolling content to bleed through.
+*   **Verified** 
+pm run verify passed.

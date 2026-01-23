@@ -1,8 +1,11 @@
-import { useState } from 'react';
-import { AppShell, Burger, Group, Text, TextInput, Button, Container, Paper, Alert, Stack } from '@mantine/core';
+import { useState, useMemo, useEffect } from 'react';
+import { AppShell, Burger, Group, Text, TextInput, Button, Container, Paper, Alert, Stack, Grid } from '@mantine/core';
 import { useDisclosure } from '@mantine/hooks';
-import { processParentsAndChildren, IssueTimeline, filterTimelineStatuses } from './utils/transformers';
-import { TimelineChart } from './components/TimelineChart';
+import { startOfWeek, addDays, differenceInMinutes } from 'date-fns';
+import { type MRT_ExpandedState } from 'mantine-react-table';
+import { processParentsAndChildren, IssueTimeline, filterTimelineStatuses, buildIssueTree } from './utils/transformers';
+import { calculateNextExpanded } from './utils/treeUtils';
+import { IssueTreeTable } from './components/IssueTreeTable';
 
 export default function App() {
   const [opened, { toggle }] = useDisclosure();
@@ -10,7 +13,16 @@ export default function App() {
   const [loading, setLoading] = useState(false);
   const [timelineData, setTimelineData] = useState<IssueTimeline[] | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [collapsedIds, setCollapsedIds] = useState<string[]>([]); // Array of IDs that are COLLAPSED
+  const [expanded, setExpanded] = useState<MRT_ExpandedState>(true);
+  const [areSubtasksVisible, setAreSubtasksVisible] = useState(true);
+
+  // Reset expansion when data significantly changes
+  useEffect(() => {
+     if(timelineData) {
+        setExpanded(true);
+        setAreSubtasksVisible(true);
+     }
+  }, [timelineData]);
 
   const handlePullData = async (targetId: string = issueId) => {
     if (!targetId) return;
@@ -22,15 +34,8 @@ export default function App() {
     try {
       const result = await window.ipcRenderer.getIssue(targetId);
       if (result.success) {
-        // Transform the raw data immediately
-        // processParentsAndChildren now performs the topological sort (DFS flattening)
         const timelines = processParentsAndChildren(result.data);
-        // Filtering might break the tree if we remove parents but keep children?
-        // Ideally, filtering should happen inside the transformer or be aware of hierarchy.
-        // For now, let's filter. If a parent is filtered out, the child might look orphaned visually but 'depth' is static.
         const filtered = filterTimelineStatuses(timelines, ['To Do', 'Open', 'Backlog', 'Done', 'Resolved', 'Closed']);
-        
-        // REMOVED: sortIssueTimelines(filtered) - this was destroying the DFS tree order
         setTimelineData(filtered);
       } else {
         setError(result.error || 'Unknown error occurred');
@@ -42,35 +47,48 @@ export default function App() {
     }
   };
 
-  const handleSaveSettings = () => {
-    const settings = {
-        issueId,
-        collapsedIds
-    };
-    localStorage.setItem('jira-cycle-time-settings', JSON.stringify(settings));
-    alert('Settings saved!');
+  // Convert flat list to tree structure for MRT
+  const treeData = useMemo(() => {
+    if (!timelineData) return [];
+    return buildIssueTree(timelineData);
+  }, [timelineData]);
+
+  const toggleSubtasks = () => {
+     const { nextExpanded, nextAreSubtasksVisible } = calculateNextExpanded(expanded, treeData, areSubtasksVisible);
+     setExpanded(nextExpanded);
+     setAreSubtasksVisible(nextAreSubtasksVisible);
   };
 
-  const handleLoadSettings = () => {
-    const saved = localStorage.getItem('jira-cycle-time-settings');
-    if (saved) {
-        try {
-            const settings = JSON.parse(saved);
-            if (settings.issueId) {
-                setIssueId(settings.issueId);
-                handlePullData(settings.issueId);
-            }
-            if (Array.isArray(settings.collapsedIds)) {
-                setCollapsedIds(settings.collapsedIds);
-            }
-        } catch (e) {
-            console.error("Failed to parse settings", e);
-            alert('Failed to load settings.');
+  // Calculate global date range for the visualization
+  const { minDate, maxDate, totalMinutes } = useMemo(() => {
+        if (!timelineData || timelineData.length === 0) return { minDate: new Date(), maxDate: new Date(), totalMinutes: 1 };
+        
+        let min = new Date(8640000000000000);
+        let max = new Date(0);
+        let hasData = false;
+
+        timelineData.forEach(issue => {
+            issue.segments.forEach(seg => {
+                hasData = true;
+                if (seg.start < min) min = seg.start;
+                if (seg.end > max) max = seg.end;
+            });
+        });
+
+        if (!hasData) {
+            min = new Date();
+            max = addDays(new Date(), 1);
         }
-    } else {
-        alert('No saved settings found.');
-    }
-  };
+
+        // Snap minDate to the start of the week (Monday) to ensure ticks align with 0%
+        // This prevents the "First tick is at -2 days" issue if the project started on Wed.
+        const alignedMin = startOfWeek(min, { weekStartsOn: 1 });
+        
+        const displayMax = addDays(max, 1);
+        const total = differenceInMinutes(displayMax, alignedMin);
+
+        return { minDate: alignedMin, maxDate: displayMax, totalMinutes: total };
+  }, [timelineData]);
 
   return (
     <AppShell
@@ -93,23 +111,39 @@ export default function App() {
         <Text>Previous Searches (ToDo)</Text>
       </AppShell.Navbar>
 
-      <AppShell.Main>
-        <Container size="md">
-          <Stack>
+      <AppShell.Main style={{ display: 'flex', flexDirection: 'column', height: 'calc(100vh - 60px)', paddingBottom: 0, minHeight: 0 }}>
+        <Container fluid style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden', minHeight: 0, paddingBottom: 0 }}> 
+          <Stack style={{ flex: 1, overflow: 'hidden', minHeight: 0 }} gap="md"> 
             
-            <Paper p="md" withBorder>
-              <Group align="flex-end">
-                <TextInput 
-                  label="Jira Issue ID" 
-                  placeholder="e.g. PROJ-123" 
-                  value={issueId}
-                  onChange={(e) => setIssueId(e.target.value)}
-                  style={{ flex: 1 }}
-                />
-                <Button onClick={() => handlePullData(issueId)} loading={loading}>
-                  Pull Data
-                </Button>
-              </Group>
+            <Paper p="md" withBorder style={{ flexShrink: 0 }}>
+              <Grid align="flex-end">
+                <Grid.Col span={6}>
+                    <Group align="flex-end">
+                        <TextInput 
+                        label="Jira Issue ID" 
+                        placeholder="e.g. PROJ-123" 
+                        value={issueId}
+                        onChange={(e) => setIssueId(e.target.value)}
+                        style={{ flex: 1 }}
+                        />
+                        <Button onClick={() => handlePullData(issueId)} loading={loading}>
+                        Pull Data
+                        </Button>
+                    </Group>
+                </Grid.Col>
+                <Grid.Col span={6}>
+                    <Group justify="flex-end">
+                        <Button 
+                            variant={areSubtasksVisible ? "light" : "filled"} 
+                            color={areSubtasksVisible ? "gray" : "blue"}
+                            size="sm" 
+                            onClick={toggleSubtasks}
+                        >
+                            {areSubtasksVisible ? "Collapse Sub-tasks" : "Expand Sub-tasks"}
+                        </Button>
+                    </Group>
+                </Grid.Col>
+              </Grid>
             </Paper>
 
             {error && (
@@ -118,28 +152,17 @@ export default function App() {
               </Alert>
             )}
 
-            {timelineData && (
-              <TimelineChart 
-                data={timelineData} 
-                collapsedIds={collapsedIds}
-                onToggleCollapse={(id) => {
-                    setCollapsedIds(prev => 
-                        prev.includes(id) 
-                            ? prev.filter(x => x !== id) 
-                            : [...prev, id]
-                    );
-                }}
-                onExpandAll={() => setCollapsedIds([])}
-                onCollapseAll={() => {
-                    // Collapse all items that have children
-                    const allAndParents = timelineData
-                        .filter(item => item.hasChildren)
-                        .map(item => item.key);
-                    setCollapsedIds(allAndParents);
-                }}
-                onSave={handleSaveSettings}
-                onLoad={handleLoadSettings}
-              />
+            {treeData.length > 0 && (
+              <div style={{ flex: 1, overflow: 'hidden', display: 'flex', flexDirection: 'column', minHeight: 0 }}>
+                <IssueTreeTable 
+                    data={treeData} 
+                    minDate={minDate}
+                    maxDate={maxDate}
+                    totalMinutes={totalMinutes}
+                    expanded={expanded}
+                    onExpandedChange={setExpanded}
+                />
+              </div>
             )}
           </Stack>
         </Container>
