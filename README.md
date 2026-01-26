@@ -15,10 +15,18 @@ Electron + React + Mantine + Visx application for visualizing Jira issue cycle t
    npm run dev
    ```
 
-3. **Build**
-   Builds the application for production (creates an installer/executable).
+3. **Verify (Local Build)**
+    Runs linting, testing, and compilation (Typescript & Vite) to ensure code quality. 
+    Does **not** create an executable.
+    ```bash
+    npm run verify
+    ```
+
+3. **Build Executable (Windows)**
+   Compiles the code **and** packages it into a Windows installer/executable.
+   Output will be in the `release/` directory.
    ```bash
-   npm run build
+   npm run package
    ```
 
 ## Architecture

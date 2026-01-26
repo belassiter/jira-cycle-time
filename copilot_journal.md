@@ -578,3 +578,20 @@ pm run verify passed.
     *   Descendant lookup is now virtually instant regardless of depth.
     *   Spinner appears immediately upon click.
     *   `npm run verify` passed.
+
+## Date: 2026-06-25
+* **Goal**: Build Configuration for Windows Executable
+* **Files Modified**: `README.md`, `vite.config.ts`
+* **Approach**:
+    *   **Documentation**: Updated `README.md` to explicitly list `npm run package` as the command to build the production executable.
+    *   **Configuration**: Added `base: './'` to `vite.config.ts` to ensure relative asset paths are used in the production build (critical for file:// protocol in Electron).
+    *   **Verification**: Verified `package.json` contains the necessary `electron-builder` configuration targeting Windows (nsis).
+* **Outcome**: The user can now run `npm run package` to create a standalone Windows installer/executable in the `release/` folder.
+
+## Date: 2026-06-25
+* **Goal**: Clarify Build vs. Package Protocols
+* **Files Modified**: `README.md`, `.github/copilot-instructions.md`
+* **Approach**:
+    *   **Definition of Done**: Updated project rules to explicitly state that `npm run build` (used in verification) only compiles the code and does *not* generate the Windows executable.
+    *   **Documentation**: Updated `README.md` to clearly distinguish between `npm run verify` (Local Quality Check) and `npm run package` (Create Windows Installer).
+* **Outcome**: Clear separation of concerns. Daily dev work uses the fast build; Release generation uses the package command.

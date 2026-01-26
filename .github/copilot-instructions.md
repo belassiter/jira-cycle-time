@@ -11,7 +11,7 @@ Before telling the user a task is complete, you MUST perform these 3 steps in or
 
 1.  **LINT**: Run `npm run lint` (and `npm run lint -- --fix` if needed).
 2.  **TEST**: Run `npm test`. All tests must pass.
-3.  **BUILD**: Run `npm run build`.
+3.  **BUILD**: Run `npm run build` (This compiles the code but does *not* create the Windows executable).
 
 ## Documentation
 *   You must maintain `copilot_journal.md`. 
