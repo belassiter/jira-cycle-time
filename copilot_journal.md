@@ -494,3 +494,39 @@ pm run verify passed.
 *   **Reason**: MRT or Mantine's default sticky behavior doesn't always apply a background, allowing scrolling content to bleed through.
 *   **Verified** 
 pm run verify passed.
+
+## 2026-01-23 15:13 - Build Configuration & Verification
+
+*   **Config**: Updated package.json to disable forceCodeSigning and fixed metadata.
+*   **Build Attempt**: Attempted npm run package (Windows exe).
+*   **Blocker**: Build failed due to Windows OS permission restrictions (Symlinks required for winCodeSign extraction).
+*   **Workaround**: Advised user to run as Admin or use dev mode.
+*   **Verified**: npm run verify (Lint & Test) passed. npm run build is technically blocked by environment but code is correct.
+
+
+## 2026-01-23 15:15 - Alternative Packaging Solution
+
+*   **Goal**: Create Windows Executable without Admin privileges.
+*   **Problem**: electron-builder requires symlink privileges.
+*   **Solution**: Installed electron-packager and created a new script pack:simple.
+*   **Outcome**: Successfully generated release-simple/JiraCycleTime-win32-x64/JiraCycleTime.exe.
+
+
+## 2026-01-23 15:20 - Icon Configuration
+
+*   **Changes**:
+    *   Moved icon.png (assumed to be the user's logo.png) to public/icon.png.
+    *   Updated electron/main.ts to use public/icon.png for the application window info.
+    *   Added elease-simple to .gitignore.
+    *   Updated pack:simple script to attempt using the icon.
+*   **Outcome**:
+    *   App Window Icon: **Success** (PNG is supported).
+    *   EXE Icon: **Partial** (Packager requires .ico for Windows; verification warning logged).
+
+
+## 2026-01-23 15:25 - Icon Conversion
+
+*   **Action**: Converted public/icon.png to public/icon.ico using a temporary script with png-to-ico.
+*   **Update**: Updated pkg:simple script to use the .ico file.
+*   **Note**: The release-simple folder will now contain an executable with the correct Windows icon.
+
