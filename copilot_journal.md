@@ -595,3 +595,19 @@ pm run verify passed.
     *   **Definition of Done**: Updated project rules to explicitly state that `npm run build` (used in verification) only compiles the code and does *not* generate the Windows executable.
     *   **Documentation**: Updated `README.md` to clearly distinguish between `npm run verify` (Local Quality Check) and `npm run package` (Create Windows Installer).
 * **Outcome**: Clear separation of concerns. Daily dev work uses the fast build; Release generation uses the package command.
+
+## Date: 2026-06-25
+* **Goal**: Document Build Permissions
+* **Files Modified**: `README.md`
+* **Approach**:
+    *   **Troubleshooting**: Identified that `electron-builder` failure (`Cannot create symbolic link`) is caused by Windows default security policy restricting symlinks to Administrators.
+    *   **Documentation**: Updated `README.md` to explicitly warn users that `npm run package` requires an Administrator terminal or Developer Mode.
+* **Outcome**: Application packaging documentation now addresses common environment failures.
+
+## Date: 2026-06-25
+* **Goal**: Build Workaround for Non-Admin Users
+* **Files Modified**: `README.md`, `package.json`
+* **Approach**:
+    *   **Fix**: Modified the `pack:simple` script in `package.json` to remove the custom icon flag (`--icon`), as the existing `icon.ico` was causing `rcedit` failures.
+    *   **Documentation**: Updated `README.md` to add a "No Admin Rights" build option using `npm run pack:simple`.
+    *   **Outcome**: Successfully generated a working Windows executable in `release-simple/` without requiring Administrator privileges.

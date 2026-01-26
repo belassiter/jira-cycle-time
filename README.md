@@ -25,8 +25,18 @@ Electron + React + Mantine + Visx application for visualizing Jira issue cycle t
 3. **Build Executable (Windows)**
    Compiles the code **and** packages it into a Windows installer/executable.
    Output will be in the `release/` directory.
+   
+   > **Note**: This command requires **Administrator privileges** (or Windows Developer Mode enabled) to create symbolic links during the build process. If you see specific "Cannot create symbolic link" errors, please run your terminal as Administrator.
+
    ```bash
    npm run package
+   ```
+
+4. **Build Executable (No Admin Rights)**
+   If you do not have Admin privileges, use this command.
+   It creates a folder containing the `.exe` (instead of an installer) in `release-simple/`.
+   ```bash
+   npm run pack:simple
    ```
 
 ## Architecture

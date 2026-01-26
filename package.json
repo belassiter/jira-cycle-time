@@ -11,7 +11,7 @@
     "lint": "eslint . --ext ts,tsx --report-unused-disable-directives --max-warnings 0",
     "test": "vitest run",
     "verify": "npm run lint && npm run test && npm run build",
-    "pack:simple": "tsc && vite build && electron-packager . JiraCycleTime --platform=win32 --arch=x64 --out=release-simple --overwrite --icon=\"public/icon.ico\" --ignore=\"^/src\" --ignore=\"^/.git\" --ignore=\"^/node_modules/electron\""
+    "pack:simple": "tsc && vite build && electron-packager . JiraCycleTime --platform=win32 --arch=x64 --out=release-simple --overwrite --ignore=\"^/src\" --ignore=\"^/.git\" --ignore=\"^/node_modules/electron\""
   },
   "dependencies": {
     "@emotion/react": "^11.11.1",
