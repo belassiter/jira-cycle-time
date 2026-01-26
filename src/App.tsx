@@ -1,28 +1,83 @@
 import { useState, useMemo, useEffect } from 'react';
-import { AppShell, Burger, Group, Text, TextInput, Button, Container, Paper, Alert, Stack, Grid } from '@mantine/core';
+import { AppShell, Group, Text, TextInput, Button, Container, Paper, Alert, Stack, Grid, Divider, Tooltip } from '@mantine/core'; // Added Divider
 import { useDisclosure } from '@mantine/hooks';
-import { startOfWeek, addDays, differenceInMinutes } from 'date-fns';
-import { type MRT_ExpandedState } from 'mantine-react-table';
+import { startOfWeek, addDays, differenceInMinutes } from 'date-fns'; // Added differenceInDays
+import { type MRT_ExpandedState, type MRT_RowSelectionState, type MRT_Updater } from 'mantine-react-table'; // Added type MRT_RowSelectionState
 import { processParentsAndChildren, IssueTimeline, filterTimelineStatuses, buildIssueTree } from './utils/transformers';
-import { calculateNextExpanded } from './utils/treeUtils';
+import { calculateNextExpanded, buildAdjacencyMap } from './utils/treeUtils';
+import { calculateIssueStats, formatMetric, type SelectedIssueStats } from './utils/stats';
+import { handleSingleSelectionChange } from './utils/selectionLogic';
 import { IssueTreeTable } from './components/IssueTreeTable';
 
 export default function App() {
-  const [opened, { toggle }] = useDisclosure();
+  const [opened] = useDisclosure();
   const [issueId, setIssueId] = useState('CGM-3458');
   const [loading, setLoading] = useState(false);
   const [timelineData, setTimelineData] = useState<IssueTimeline[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [expanded, setExpanded] = useState<MRT_ExpandedState>(true);
   const [areSubtasksVisible, setAreSubtasksVisible] = useState(true);
+  const [rowSelection, setRowSelection] = useState<MRT_RowSelectionState>({}); // New State
+  
+  // Stats Calculation State
+  const [selectedStats, setSelectedStats] = useState<SelectedIssueStats | null>(null);
+  const [isCalculating, setIsCalculating] = useState(false);
 
-  // Reset expansion when data significantly changes
+  // Lazy-load Parent/Child Adjacency Map for O(1) traversal
+  const relationsMap = useMemo(() => {
+     if (!timelineData) return new Map<string, string[]>();
+     return buildAdjacencyMap(timelineData);
+  }, [timelineData]);
+
+  // Custom handler to enforce single selection behavior even with checkboxes
+  // Updated to provide IMMEDIATE feedback (Spinner) on click
+  const handleRowSelectionChange = (updater: MRT_Updater<MRT_RowSelectionState>) => {
+      const newSelection = handleSingleSelectionChange(updater, rowSelection);
+      setRowSelection(newSelection);
+
+      // If we have a selection, immediately signal "Calculating" 
+      // This ensures the spinner appears on the very next render (checkbox click)
+      const hasSelection = Object.keys(newSelection).some(k => newSelection[k]);
+      if (hasSelection) {
+          setIsCalculating(true);
+          setSelectedStats(null); // Clear old stats immediately
+      } else {
+          setIsCalculating(false);
+          setSelectedStats(null);
+      }
+  };
+
+  // Reset expansion and stats when data significantly changes
   useEffect(() => {
      if(timelineData) {
         setExpanded(true);
         setAreSubtasksVisible(true);
+        setRowSelection({}); // Reset selection
+        setSelectedStats(null);
      }
   }, [timelineData]);
+  
+  // Derived state for Statistics Panel - Moved to Effect for async calculation to unblock UI
+  useEffect(() => {
+      // Check if any row is selected
+      const selectedId = Object.keys(rowSelection).find(k => rowSelection[k]);
+      
+      if (!selectedId) {
+          // If logic handled in handler, this might be redundant but safe
+          setIsCalculating(false);
+          return;
+      }
+
+      // Defer calculation to allow render cycle (showing spinner)
+      // The debounce also helps if the user clicks rapidly between rows
+      const timer = setTimeout(() => {
+          const stats = calculateIssueStats(rowSelection, timelineData, relationsMap);
+          setSelectedStats(stats);
+          setIsCalculating(false);
+      }, 50);
+
+      return () => clearTimeout(timer);
+  }, [rowSelection, timelineData, relationsMap]);
 
   const handlePullData = async (targetId: string = issueId) => {
     if (!targetId) return;
@@ -90,9 +145,13 @@ export default function App() {
         return { minDate: alignedMin, maxDate: displayMax, totalMinutes: total };
   }, [timelineData]);
 
+  // Derived state for Statistics Panel
+  // Moved to useEffect above
+
+
+
   return (
     <AppShell
-      header={{ height: 60 }}
       navbar={{
         width: 300,
         breakpoint: 'sm',
@@ -100,18 +159,66 @@ export default function App() {
       }}
       padding="md"
     >
-      <AppShell.Header>
-        <Group h="100%" px="md">
-          <Burger opened={opened} onClick={toggle} hiddenFrom="sm" size="sm" />
-          <Text size="lg" fw={700}>Jira Cycle Time</Text>
-        </Group>
-      </AppShell.Header>
-
       <AppShell.Navbar p="md">
-        <Text>Previous Searches (ToDo)</Text>
+        {selectedStats ? (
+            <Stack gap="xs">
+                <Text fw={700} size="lg" style={{ borderBottom: '1px solid #eee', paddingBottom: '8px' }}>Statistics</Text>
+                
+                <Text fw={600} c="blue">{selectedStats.key}</Text>
+                <Tooltip label={selectedStats.summary} multiline w={250} withinPortal>
+                    <Text size="xs" c="dimmed" truncate mb="sm">{selectedStats.summary}</Text>
+                </Tooltip>
+
+                <Group justify="space-between">
+                    <Text size="sm">Cycle Time:</Text>
+                    <Text fw={500}>{formatMetric(selectedStats.cycleTime)} work days</Text>
+                </Group>
+                <Group justify="space-between">
+                    <Text size="sm">Calendar Time:</Text>
+                    <Text fw={500}>{formatMetric(selectedStats.calendarWeeks)} weeks</Text>
+                </Group>
+                
+                <Divider my="sm" />
+                
+                <Text size="xs" fw={700} tt="uppercase" c="dimmed">{selectedStats.childLevel} Cycle Time</Text>
+
+                {selectedStats.average && (
+                    <Group justify="space-between" align="flex-start">
+                        <Text size="sm">Average:</Text>
+                        <Text fw={500} size="sm">{selectedStats.average}</Text>
+                    </Group>
+                )}
+
+                <Stack gap={0} mt="xs">
+                    <Text size="sm">Longest:</Text>
+                    <Group justify="space-between" align="center" wrap="nowrap">
+                         <Tooltip label={selectedStats.longestSubtask?.summary} multiline w={250} withinPortal>
+                            <Text size="xs" c="blue" component="span" truncate style={{ flex: 1, cursor: 'help' }}>
+                                {selectedStats.longestSubtask?.summary}
+                            </Text>
+                         </Tooltip>
+                         <Text fw={500} size="sm" style={{ whiteSpace: 'nowrap', marginLeft: 8 }}>{selectedStats.longestSubtask?.val}</Text>
+                    </Group>
+                </Stack>
+
+                <Stack gap={0} mt="xs">
+                    <Text size="sm">Last:</Text>
+                    <Group justify="space-between" align="center" wrap="nowrap">
+                         <Tooltip label={selectedStats.lastSubtask?.summary} multiline w={250} withinPortal>
+                             <Text size="xs" c="blue" component="span" truncate style={{ flex: 1, cursor: 'help' }}>
+                                {selectedStats.lastSubtask?.summary}
+                             </Text>
+                         </Tooltip>
+                         <Text fw={500} size="sm" style={{ whiteSpace: 'nowrap', marginLeft: 8 }}>{selectedStats.lastSubtask?.val}</Text>
+                    </Group>
+                </Stack>
+            </Stack>
+        ) : (
+            <Text>Select a row to view statistics.</Text>
+        )}
       </AppShell.Navbar>
 
-      <AppShell.Main style={{ display: 'flex', flexDirection: 'column', height: 'calc(100vh - 60px)', paddingBottom: 0, minHeight: 0 }}>
+      <AppShell.Main style={{ display: 'flex', flexDirection: 'column', height: '100vh', paddingBottom: 0, minHeight: 0 }}>
         <Container fluid style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden', minHeight: 0, paddingBottom: 0 }}> 
           <Stack style={{ flex: 1, overflow: 'hidden', minHeight: 0 }} gap="md"> 
             
@@ -161,6 +268,9 @@ export default function App() {
                     totalMinutes={totalMinutes}
                     expanded={expanded}
                     onExpandedChange={setExpanded}
+                    rowSelection={rowSelection}
+                    onRowSelectionChange={handleRowSelectionChange}
+                    isCalculating={isCalculating}
                 />
               </div>
             )}

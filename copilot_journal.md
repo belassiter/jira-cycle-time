@@ -530,3 +530,51 @@ pm run verify passed.
 *   **Update**: Updated pkg:simple script to use the .ico file.
 *   **Note**: The release-simple folder will now contain an executable with the correct Windows icon.
 
+
+## 2026-01-26 09:30 - Error Handling Enhancement
+*   **Goal**: Improve error messaging when the Jira server is unreachable.
+*   **Action**: Updated electron/main.ts to check for network error codes (ENOTFOUND, ETIMEDOUT, etc.) and append 'If needed, connect to the VPN.' to the error message.
+*   **Outcome**: Verified with npm run verify.
+
+
+## 2026-01-26 09:40 - Statistics Sidebar
+*   **Goal**: Display statistics (Cycle Time, Calendar Time, Longest/Last Sub-task) when a row is selected.
+*   **Action**: 
+    *   Enabled row selection in \IssueTreeTable.tsx\.
+    *   Added \owSelection\ state in \App.tsx\.
+    *   Implemented logic to calculate stats for the selected issue (requires children to be valid).
+    *   Replaced 'Previous Searches' sidebar text with the new 'Statistics' panel.
+*   **Outcome**: Verified with npm run verify.
+
+
+## Date: 2026-06-25
+* **Goal**: UI Cleanup - Header & Statistics
+* **Files Modified**: `src/App.tsx`
+* **Approach**:
+    *   **Header**: Removed the top `AppShell.Header` component and corresponding configuration to reclaim vertical space.
+    *   **Statistics Summary**: Updated the summary text to be truncated (single line) and implemented a `Tooltip` for full visibility on hover.
+    *   **Font Cleanup**: Fixed inconsistency in the "Last" sub-task value font size by removing the hardcoded `11px` override.
+    *   **Alignment**: Refined the `Stack` and `Group` layout for "Average", "Longest", and "Last" statistics to ensure consistent alignment and spacing.
+    *   **Code Hygiene**: Removed unused imports (`Burger`) and hooks (`toggle`) resulting from the header removal.
+* **Outcome**: `npm run verify` passed. The UI is cleaner, more compact, and visually consistent.
+
+## Date: 2026-06-25
+* **Goal**: Optimize Selection Feedback & Improve UX
+* **Files Modified**: `src/App.tsx`, `src/components/IssueTreeTable.tsx`
+* **Approach**:
+    *   **Feedback**: Decoupled statistics calculation from the main render cycle. Uses `setTimeout` to defer heavy calculation, allowing the UI (checkbox) to update immediately.
+    *   **Indicator**: Implemented a `Loader` (Spinner) inside the checkbox of the selected row in `IssueTreeTable`. This appears while the calculation is pending.
+    *   **State Management**: Converted `selectedStats` from `useMemo` to `useState` + `useEffect` to manage the async loading state and `isCalculating` flag.
+* **Outcome**: Selection is vastly more responsive. Spinner provides visual feedback during the calculation delay. `npm run verify` passed.
+
+## Date: 2026-06-25
+* **Goal**: Performance Optimization - O(1) Hierarchy Lookup & Immediate Feedback
+* **Files Modified**: `src/App.tsx`, `src/utils/treeUtils.ts`, `src/utils/stats.ts`
+* **Approach**:
+    *   **Algorithmic Fix (Cost Reduction)**: Replaced recursive filter-based descendant search (O(N^2) worst case) with an O(N) pre-computed Adjacency Map + O(Descendants) BFS lookup.
+    *   **Lazy Loading**: The `relationsMap` is built via `useMemo` in `App.tsx` immediately after data fetch, ensuring subsequent interactions are instant.
+    *   **Immediate Feedback**: Refactored `handleRowSelectionChange` to set `isCalculating(true)` *synchronously* when a row is clicked (before the effect runs). This ensures the spinner appears instantly.
+* **Outcome**:
+    *   Descendant lookup is now virtually instant regardless of depth.
+    *   Spinner appears immediately upon click.
+    *   `npm run verify` passed.

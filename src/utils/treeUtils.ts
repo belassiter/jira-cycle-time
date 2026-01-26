@@ -1,5 +1,18 @@
 import { IssueTimeline } from './transformers';
 
+export const buildAdjacencyMap = (flatData: IssueTimeline[]): Map<string, string[]> => {
+    const map = new Map<string, string[]>();
+    flatData.forEach(item => {
+        if (item.parentId) {
+            if (!map.has(item.parentId)) {
+                map.set(item.parentId, []);
+            }
+            map.get(item.parentId)?.push(item.key);
+        }
+    });
+    return map;
+};
+
 export const extractAllKeys = (nodes: IssueTimeline[]): Record<string, boolean> => {
   const acc: Record<string, boolean> = {};
   const traverse = (list: IssueTimeline[]) => {

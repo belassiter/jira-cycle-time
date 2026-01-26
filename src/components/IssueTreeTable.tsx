@@ -1,6 +1,6 @@
 import { useMemo, useEffect } from 'react';
-import { MantineReactTable, useMantineReactTable, type MRT_ColumnDef, type MRT_ExpandedState, type MRT_Updater } from 'mantine-react-table';
-import { Box, Tooltip, Text, Group, Image } from '@mantine/core';
+import { Box, Tooltip, Group, Text, Image, Checkbox, Loader, Center } from '@mantine/core'; // Checkbox, Loader, Center added
+import { MantineReactTable, useMantineReactTable, type MRT_ColumnDef, type MRT_ExpandedState, type MRT_Updater, type MRT_RowSelectionState } from 'mantine-react-table';
 import { format } from 'date-fns';
 import { IssueTimeline, getStatusColor } from '../utils/transformers';
 import { generateSmartTicks } from '../utils/display';
@@ -14,9 +14,23 @@ interface IssueTreeTableProps {
   totalMinutes: number;
   expanded: MRT_ExpandedState;
   onExpandedChange: (updater: MRT_Updater<MRT_ExpandedState>) => void;
+  rowSelection?: MRT_RowSelectionState;
+  onRowSelectionChange?: (updater: MRT_Updater<MRT_RowSelectionState>) => void;
+  isCalculating?: boolean;
 }
 
-export function IssueTreeTable({ data, minDate, maxDate, totalMinutes, expanded, onExpandedChange }: IssueTreeTableProps) {
+
+export function IssueTreeTable({ 
+    data, 
+    minDate, 
+    maxDate, 
+    totalMinutes, 
+    expanded, 
+    onExpandedChange,
+    rowSelection,
+    onRowSelectionChange,
+    isCalculating = false
+}: IssueTreeTableProps) {
   // Generate ticks for the header visualization
   const ticks = useMemo(() => {
     return generateSmartTicks(minDate, maxDate);
@@ -197,12 +211,34 @@ export function IssueTreeTable({ data, minDate, maxDate, totalMinutes, expanded,
     getRowId: (row) => row.key,
     filterFromLeafRows: true, // Re-enable to allow searching children
     getSubRows: (row) => row.subRows,
-    state: { expanded },
-    onExpandedChange: onExpandedChange,
     displayColumnDefOptions: {
         'mrt-row-expand': {
             size: 40, 
         },
+        'mrt-row-select': {
+            size: 40,
+            Header: '', // Hide header checkbox
+            Cell: ({ row }) => {
+                const isSelected = row.getIsSelected();
+                // Show loader only if this specific row is selected AND we are calculating
+                if (isSelected && isCalculating) {
+                   return (
+                     <Center>
+                        <Loader size={16} /> 
+                     </Center>
+                   );
+                }
+                return (
+                    <Center>
+                         <Checkbox 
+                            checked={isSelected}
+                            onChange={row.getToggleSelectedHandler()}
+                            aria-label={`Select ${row.original.key}`}
+                         />
+                    </Center>
+                );
+            }
+        }
     },
     enableStickyHeader: true,
     mantinePaperProps: {
@@ -222,12 +258,35 @@ export function IssueTreeTable({ data, minDate, maxDate, totalMinutes, expanded,
     enablePagination: false, 
     enableBottomToolbar: false,
     enableTopToolbar: true,
+    enableRowSelection: true,
+    enableMultiRowSelection: true,
+    enableSelectAll: false,
+    enableSorting: false, // Global disable sorting
+    onRowSelectionChange: onRowSelectionChange,
+    
+    // Handlers defined above in destructured props are passed automatically if keys match, 
+    // but explicit assignment is safer if we are overriding or grouping.
+    // However, we must ensure we don't have duplicates in the object literal passed to useMantineReactTable (or the component).
+    // The previous error was because 'onExpandedChange' and 'state' were defined twice in the big object.
+    // Let's clean this up.
+
+    onExpandedChange,
+    state: {
+        expanded,
+        rowSelection,
+    },
+    
     mantineExpandButtonProps: ({ row }) => ({
         style: {
           visibility: row.original.subRows && row.original.subRows.length > 0 ? 'visible' : 'hidden',
           transition: 'transform 0.2s',
-          transform: row.getIsExpanded() ? 'rotate(-90deg)' : 'rotate(0deg)', // Custom rotation logic
+          transform: row.getIsExpanded() ? 'rotate(0deg)' : 'rotate(-90deg)', // Standard: Down (0) when expanded, Right (-90) when collapsed
         },
+    }),
+    mantineTableBodyRowProps: ({ row }) => ({
+        style: {
+            backgroundColor: row.getIsSelected() ? 'var(--mantine-color-blue-0)' : undefined, // Light blue highlight
+        }
     }),
     initialState: { 
         density: 'xs', 

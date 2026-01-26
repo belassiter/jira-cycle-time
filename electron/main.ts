@@ -153,9 +153,15 @@ ipcMain.handle('jira-get-issue', async (_event, issueId: string) => {
 
   } catch (error: any) {
     console.error('Jira API Error:', error.response?.data || error.message);
+    
+    let errorMessage = error.response?.data?.errorMessages?.join(', ') || error.message;
+    if (error.code === 'ENOTFOUND' || error.code === 'ETIMEDOUT' || error.code === 'ECONNREFUSED' || error.message?.includes('Network Error')) {
+      errorMessage += '. If needed, connect to the VPN.';
+    }
+
     return { 
       success: false, 
-      error: error.response?.data?.errorMessages?.join(', ') || error.message 
+      error: errorMessage
     };
   }
 });
