@@ -517,7 +517,8 @@ pm run verify passed.
 *   **Changes**:
     *   Moved icon.png (assumed to be the user's logo.png) to public/icon.png.
     *   Updated electron/main.ts to use public/icon.png for the application window info.
-    *   Added elease-simple to .gitignore.
+    *   Added 
+elease-simple to .gitignore.
     *   Updated pack:simple script to attempt using the icon.
 *   **Outcome**:
     *   App Window Icon: **Success** (PNG is supported).
@@ -541,13 +542,14 @@ pm run verify passed.
 *   **Goal**: Display statistics (Cycle Time, Calendar Time, Longest/Last Sub-task) when a row is selected.
 *   **Action**: 
     *   Enabled row selection in \IssueTreeTable.tsx\.
-    *   Added \owSelection\ state in \App.tsx\.
+    *   Added \
+owSelection\ state in \App.tsx\.
     *   Implemented logic to calculate stats for the selected issue (requires children to be valid).
     *   Replaced 'Previous Searches' sidebar text with the new 'Statistics' panel.
 *   **Outcome**: Verified with npm run verify.
 
 
-## Date: 2026-06-25
+## Date: 2026-01-26
 * **Goal**: UI Cleanup - Header & Statistics
 * **Files Modified**: `src/App.tsx`
 * **Approach**:
@@ -558,7 +560,7 @@ pm run verify passed.
     *   **Code Hygiene**: Removed unused imports (`Burger`) and hooks (`toggle`) resulting from the header removal.
 * **Outcome**: `npm run verify` passed. The UI is cleaner, more compact, and visually consistent.
 
-## Date: 2026-06-25
+## Date: 2026-01-26
 * **Goal**: Optimize Selection Feedback & Improve UX
 * **Files Modified**: `src/App.tsx`, `src/components/IssueTreeTable.tsx`
 * **Approach**:
@@ -567,7 +569,7 @@ pm run verify passed.
     *   **State Management**: Converted `selectedStats` from `useMemo` to `useState` + `useEffect` to manage the async loading state and `isCalculating` flag.
 * **Outcome**: Selection is vastly more responsive. Spinner provides visual feedback during the calculation delay. `npm run verify` passed.
 
-## Date: 2026-06-25
+## Date: 2026-01-26
 * **Goal**: Performance Optimization - O(1) Hierarchy Lookup & Immediate Feedback
 * **Files Modified**: `src/App.tsx`, `src/utils/treeUtils.ts`, `src/utils/stats.ts`
 * **Approach**:
@@ -579,7 +581,7 @@ pm run verify passed.
     *   Spinner appears immediately upon click.
     *   `npm run verify` passed.
 
-## Date: 2026-06-25
+## Date: 2026-01-26
 * **Goal**: Build Configuration for Windows Executable
 * **Files Modified**: `README.md`, `vite.config.ts`
 * **Approach**:
@@ -588,7 +590,7 @@ pm run verify passed.
     *   **Verification**: Verified `package.json` contains the necessary `electron-builder` configuration targeting Windows (nsis).
 * **Outcome**: The user can now run `npm run package` to create a standalone Windows installer/executable in the `release/` folder.
 
-## Date: 2026-06-25
+## Date: 2026-01-26
 * **Goal**: Clarify Build vs. Package Protocols
 * **Files Modified**: `README.md`, `.github/copilot-instructions.md`
 * **Approach**:
@@ -596,7 +598,7 @@ pm run verify passed.
     *   **Documentation**: Updated `README.md` to clearly distinguish between `npm run verify` (Local Quality Check) and `npm run package` (Create Windows Installer).
 * **Outcome**: Clear separation of concerns. Daily dev work uses the fast build; Release generation uses the package command.
 
-## Date: 2026-06-25
+## Date: 2026-01-26
 * **Goal**: Document Build Permissions
 * **Files Modified**: `README.md`
 * **Approach**:
@@ -604,10 +606,42 @@ pm run verify passed.
     *   **Documentation**: Updated `README.md` to explicitly warn users that `npm run package` requires an Administrator terminal or Developer Mode.
 * **Outcome**: Application packaging documentation now addresses common environment failures.
 
-## Date: 2026-06-25
+## Date: 2026-01-26
 * **Goal**: Build Workaround for Non-Admin Users
 * **Files Modified**: `README.md`, `package.json`
 * **Approach**:
     *   **Fix**: Modified the `pack:simple` script in `package.json` to remove the custom icon flag (`--icon`), as the existing `icon.ico` was causing `rcedit` failures.
     *   **Documentation**: Updated `README.md` to add a "No Admin Rights" build option using `npm run pack:simple`.
     *   **Outcome**: Successfully generated a working Windows executable in `release-simple/` without requiring Administrator privileges.
+
+## Date: 2026-01-26
+* **Goal**: Feature - Sub-task Grouping & Advanced Statistics
+* **Files Modified**: `src/utils/grouping.ts`, `src/utils/stats.ts`, `src/App.tsx`, `src/components/GroupsManager.tsx`
+* **Approach**:
+    *   **Logic**: Implemented `Sub-task Grouping` (Fuzzy keyword matching) in `grouping.ts`.
+    *   **Stats**: Enhanced `stats.ts` to calculate Mean/StdDev per group, identify 'Longest' and 'Last' phases, and compute Global Sub-task Average.
+    *   **UI**: Added `GroupsManager` modal for CRUD operations on groups. Updated `App.tsx` Sidebar to visualize new metrics.
+    *   **Visualization**: Implemented `SubTaskChart` (Visx) to plot jittered cycle time distribution with Mean/Median/StdDev indicators.
+    *   **Outcome**: `npm run verify` passed. Application now supports dynamic grouping of sub-tasks for detailed cycle time analysis.
+
+## Date: 2026-01-26
+* **Goal**: Refine Sub-task Grouping & Visualization
+* **Files Modified**: `src/utils/grouping.ts`, `src/components/GroupsManager.tsx`, `src/App.tsx`, `src/components/SubTaskChart.tsx`
+* **Approach**:
+    *   **Logic**: Added wildcard `*` support to matching.
+    *   **UI**: Updated `GroupsManager` with split-view layout showing summary frequencies and group match counts.
+    *   **Visualization**: Enhanced `SubTaskChart` with larger fonts, overlay legend, and specific data labels.
+    *   **Config**: Updated default groups and modal dimensions.
+*   **Outcome**: `npm run verify` passed. Feature polished to meet specific user presentation requirements.
+    *   **Testing**: Added `grouping.test.ts` to verify classification logic.
+*   **Outcome**: `npm run verify` passed. Application now supports dynamic grouping of sub-tasks for detailed cycle time analysis.
+
+## Date: 2026-01-26 16:51
+* **Goal**: Refine Sub-task Grouping Polish (Gray Backgrounds, Smaller Chart Fonts, Gradient Coloring for Stats)
+* **Files Modified**: `src/components/GroupsManager.tsx`, `src/components/SubTaskChart.tsx`, `src/App.tsx`, `src/utils/colors.ts`
+* **Approach**: 
+    - Created `interpolateColor` utility to generate Green->Orange gradients.
+    - Updated `GroupsManager` to conditionally style table rows with `gray.1` background and green checkmark if the sub-task is classified in a group.
+    - Updated `SubTaskChart` to revert padding to `0.2` and significantly reduce font sizes (Axes 14/12, Labels 11).
+    - Updated `App.tsx` stats display to include "X ± Y work days" in the list and summary sections, applying the color gradient to these values based on the range of group averages.
+* **Outcome**: Verified with `npm test`, Lint pass, Build pass. Visual polish applied as requested.
