@@ -1,4 +1,4 @@
-import { useMemo, useEffect } from 'react';
+import { useMemo } from 'react';
 import { Box, Tooltip, Group, Text, Image, Checkbox, Loader, Center } from '@mantine/core'; // Checkbox, Loader, Center added
 import { MantineReactTable, useMantineReactTable, type MRT_ColumnDef, type MRT_ExpandedState, type MRT_Updater, type MRT_RowSelectionState } from 'mantine-react-table';
 import { format } from 'date-fns';
@@ -36,23 +36,25 @@ export function IssueTreeTable({
     return generateSmartTicks(minDate, maxDate);
   }, [minDate, maxDate]);
 
-  // Debug Logging for Timeline Alignment
-  useEffect(() => {
-     if (ticks.length > 0) {
-         console.group('Timeline Alignment Debug');
-         console.log('Global Range:', { minDate, maxDate, totalMinutes });
-         console.log('Ticks Generated:', ticks.length);
-         ticks.forEach((t, i) => {
-             const pos = getTimelinePosition(t, minDate, totalMinutes);
-             console.log(`Tick ${i}: ${format(t, 'yyyy-MM-dd')} -> ${pos.toFixed(2)}%`);
-         });
-         console.groupEnd();
-     }
-  }, [ticks, minDate, maxDate, totalMinutes]);
-
   const tickFormat = (date: Date) => {
      return format(date, 'MMM d');
   };
+
+  // Inject Header as Root Row (Heirarchy Trick)
+  const augmentedData = useMemo(() => {
+      const rulerRow: IssueTimeline = {
+          key: '__RULER__',
+          summary: 'RULER',
+          segments: [],
+          totalCycleTime: 0,
+          depth: 0,
+          hasChildren: true,
+          subRows: data, // Make actual data children of the Ruler so they sort independently
+          issueTypeIconUrl: ''
+      };
+      
+      return [rulerRow];
+  }, [data]);
 
   const columns = useMemo<MRT_ColumnDef<IssueTimeline>[]>(
     () => [
@@ -60,40 +62,47 @@ export function IssueTreeTable({
         accessorKey: 'key',
         header: 'Key',
         // Variable width but tight:
-        size: 150,      // Default starting width
+        size: 120,      // Default starting width
         minSize: 80,    // Allow shrinking further
         maxSize: 400,
         enableResizing: true, 
         grow: false,    // Do not absorb extra space
         enableGlobalFilter: true,
-        Cell: ({ row }) => (
-            <Group gap="xs" wrap="nowrap" pl={row.depth * 20}>
-                {/* Indentation only, no toggle button. The default expander column handles the toggle. */}
-                {row.original.issueTypeIconUrl && (
-                  <Image src={row.original.issueTypeIconUrl} w={16} h={16} fit="contain" />
-                )}
-                {row.original.url ? (
-                  <Tooltip label={row.original.key} openDelay={500}>
-                    <Text 
-                        component="a" 
-                        href={row.original.url} 
-                        target="_blank"
-                        fw={500} 
-                        size="sm"
-                        c="blue"
-                        truncate
-                        style={{ textDecoration: 'underline', cursor: 'pointer', display: 'block', maxWidth: '100%' }}
-                    >
-                        {row.original.key}
-                    </Text>
-                  </Tooltip>
-                ) : (
-                  <Tooltip label={row.original.key} openDelay={500}>
-                    <Text fw={500} size="sm" truncate>{row.original.key}</Text>
-                   </Tooltip>
-                )}
-            </Group>
-        ),
+        Cell: ({ row }) => {
+            // RULER ROW: Display Header Title
+            if (row.original.key === '__RULER__') {
+                return <Text fw={700} size="sm">Key</Text>;
+            }
+
+            return (
+                <Group gap="xs" wrap="nowrap" pl={Math.max(0, row.depth - 1) * 20}>
+                    {/* Indentation only, no toggle button. The default expander column handles the toggle. */}
+                    {row.original.issueTypeIconUrl && (
+                    <Image src={row.original.issueTypeIconUrl} w={16} h={16} fit="contain" />
+                    )}
+                    {row.original.url ? (
+                    <Tooltip label={row.original.key} openDelay={500}>
+                        <Text 
+                            component="a" 
+                            href={row.original.url} 
+                            target="_blank"
+                            fw={500} 
+                            size="sm"
+                            c="blue"
+                            truncate
+                            style={{ textDecoration: 'underline', cursor: 'pointer', display: 'block', maxWidth: '100%' }}
+                        >
+                            {row.original.key}
+                        </Text>
+                    </Tooltip>
+                    ) : (
+                    <Tooltip label={row.original.key} openDelay={500}>
+                        <Text fw={500} size="sm" truncate>{row.original.key}</Text>
+                    </Tooltip>
+                    )}
+                </Group>
+            );
+        }
       },
       {
         accessorKey: 'summary',
@@ -102,21 +111,26 @@ export function IssueTreeTable({
         enableResizing: false,
         grow: false,
         enableGlobalFilter: true,
-        Cell: ({ cell }) => (
-            <Tooltip label={cell.getValue<string>()} openDelay={500}>
-                <Text size="sm" truncate>{cell.getValue<string>()}</Text>
-            </Tooltip>
-        )
+        Cell: ({ cell, row }) => {
+            // RULER ROW: Display Header Title
+            if (row.original.key === '__RULER__') {
+                return <Text fw={700} size="sm">Summary</Text>;
+            }
+            return (
+                <Tooltip label={cell.getValue<string>()} openDelay={500}>
+                    <Text size="sm" truncate>{cell.getValue<string>()}</Text>
+                </Tooltip>
+            );
+        }
       },
       {
-        header: 'Timeline',
-        accessorKey: 'key', // Dummy accessor
         id: 'timeline',
-        size: 800, // Fixed large width
-        minSize: 800, // Prevent compression
-        maxSize: 800, // Prevent expansion
-        grow: false, // Strict fixed width
-        enableResizing: false, // Lock it down to simplify alignment debugging
+        header: 'Timeline',
+        // Using a dummy accessor key to avoid MRT using the first column's key by default if none provided
+        accessorKey: 'timelineDummy', 
+        minSize: 300, 
+        grow: true, // Allow filling remaining space
+        enableResizing: false, // Keep it fluid based on window size
         enableGlobalFilter: false,
         enableSorting: false, 
         enableColumnFilter: false, 
@@ -126,35 +140,54 @@ export function IssueTreeTable({
             style: { padding: 0, paddingLeft: 0, paddingRight: 0, borderRight: '1px solid #eee' },
         },
         mantineTableHeadCellProps: {
-            style: { padding: 0, paddingLeft: 0, paddingRight: 0 },
+            // Force flex behavior inside the TH to allow child to grow
+            sx: { 
+                 '& .mantine-TableHeadCell-Content': { width: '100%', justifyContent: 'normal' },
+                 '& .mantine-TableHeadCell-Content-Labels': { width: '100%' }
+            },
+            style: { padding: 0, paddingLeft: 0, paddingRight: 0, width: '100%' },
         },
-        // Use header context to size the box explicitly
-        Header: ({ header }) => (
-            <Box h={30} w={header.getSize()} style={{ position: 'relative', display: 'block', overflow: 'hidden' }}>
-                {/* Render ticks absolutely. The container must have width. */}
-                {ticks.map((date, i) => {
-                    const pos = getTimelinePosition(date, minDate, totalMinutes);
-                    // if (pos < -50 || pos > 150) return null; 
-                    return (
-                        <Box
-                            key={i}
-                            style={{ 
-                                position: 'absolute', 
-                                left: `${pos}%`, 
-                                bottom: 0,
-                                display: 'flex',
-                                alignItems: 'center', // Align tick and text vertically
-                            }}
-                        >
-                            <Box h={10} w={1} bg="gray" />
-                            <Text size="xs" c="dimmed" style={{ whiteSpace: 'nowrap', fontSize: 10, paddingLeft: 4 }}>{tickFormat(date)}</Text>
-                        </Box>
-                    );
-                })}
-            </Box>
-        ),
+        
+        Header: () => null, // Hide actual header content 
+
         Cell: ({ row }) => {
             const issue = row.original;
+
+            // RULER ROW: Render Ticks (Official Header Replacement)
+            if (issue.key === '__RULER__') {
+                 return (
+                    <Box
+                        w="100%"
+                        h={30}
+                        bg="white"
+                        style={{ position: 'relative', overflow: 'hidden', borderBottom: '1px solid #eee' }}
+                    >
+                        {ticks.map((date, i) => {
+                            const pos = getTimelinePosition(date, minDate, totalMinutes);
+                            return (
+                                <Box
+                                    key={i}
+                                    style={{ 
+                                        position: 'absolute', 
+                                        left: `${pos}%`, 
+                                        top: 0, 
+                                        height: 30,
+                                        display: 'flex',
+                                        flexDirection: 'column',
+                                        alignItems: 'flex-start', // Left align content relative to the pos anchor
+                                        pointerEvents: 'none',
+                                    }}
+                                >
+                                    <Box h={8} w={1} bg="black" mb={2} />
+                                    {/* Text right of the tick mark */}
+                                    <Text size="xs" c="dimmed" style={{ whiteSpace: 'nowrap', fontSize: 10, paddingLeft: 2 }}>{tickFormat(date)}</Text>
+                                </Box>
+                            );
+                        })}
+                    </Box>
+                 );
+            }
+
             return (
                 <Box
                     w="100%"
@@ -193,19 +226,27 @@ export function IssueTreeTable({
       {
         accessorKey: 'totalCycleTime',
         header: 'Cycle Time',
-        size: 130, // Increased by 30px
+        size: 80, 
         enableResizing: false,
         grow: false,
-        Cell: ({ cell }) => <Text size="sm">{formatWorkDays(cell.getValue<number>())}</Text>
+        Cell: ({ cell, row }) => {
+             // RULER ROW: Display Header Title
+             if (row.original.key === '__RULER__') {
+                return <Text fw={700} size="sm">Cycle Time</Text>;
+            }
+            return <Text size="sm">{formatWorkDays(cell.getValue<number>())}</Text>;
+        }
       }
     ],
-    [ticks, minDate, totalMinutes]
+    [ticks, minDate, totalMinutes] // Dependencies updated
   );
 
 
   const table = useMantineReactTable({
     columns,
-    data,
+    data: augmentedData,
+    enableTableHead: false, 
+    // enableRowPinning: false, // Removed per request
     enableExpandAll: true,
     enableExpanding: true,
     getRowId: (row) => row.key,
@@ -213,12 +254,15 @@ export function IssueTreeTable({
     getSubRows: (row) => row.subRows,
     displayColumnDefOptions: {
         'mrt-row-expand': {
-            size: 40, 
+            size: 40,
         },
         'mrt-row-select': {
             size: 40,
             Header: '', // Hide header checkbox
             Cell: ({ row }) => {
+                // HIDE for Ruler Row
+                if (row.original.key === '__RULER__') return null;
+
                 const isSelected = row.getIsSelected();
                 // Show loader only if this specific row is selected AND we are calculating
                 if (isSelected && isCalculating) {
@@ -240,13 +284,19 @@ export function IssueTreeTable({
             }
         }
     },
-    enableStickyHeader: true,
+    // enableStickyHeader: false, // Removed to allow Ruler row to scroll normally
     mantinePaperProps: {
         style: {
             height: '100%',
             display: 'flex',
             flexDirection: 'column',
         },
+    },
+    mantineTableBodyCellProps: {
+        style: {
+            paddingTop: 4, 
+            paddingBottom: 4
+        }
     },
     mantineTableContainerProps: { 
         style: { 
@@ -261,7 +311,7 @@ export function IssueTreeTable({
     enableRowSelection: true,
     enableMultiRowSelection: true,
     enableSelectAll: false,
-    enableSorting: false, // Global disable sorting
+    enableSorting: true, 
     onRowSelectionChange: onRowSelectionChange,
     
     // Handlers defined above in destructured props are passed automatically if keys match, 
@@ -276,13 +326,19 @@ export function IssueTreeTable({
         rowSelection,
     },
     
-    mantineExpandButtonProps: ({ row }) => ({
-        style: {
-          visibility: row.original.subRows && row.original.subRows.length > 0 ? 'visible' : 'hidden',
-          transition: 'transform 0.2s',
-          transform: row.getIsExpanded() ? 'rotate(0deg)' : 'rotate(-90deg)', // Standard: Down (0) when expanded, Right (-90) when collapsed
-        },
-    }),
+    mantineExpandButtonProps: ({ row }) => {
+        // HIDE for Ruler Row
+        if (row.original.key === '__RULER__') {
+             return { style: { visibility: 'hidden', display: 'none' } };
+        }
+        return {
+            style: {
+              visibility: row.getCanExpand() ? 'visible' : 'hidden', 
+              transition: 'transform 0.2s',
+              transform: row.getIsExpanded() ? 'rotate(0deg)' : 'rotate(-90deg)', // Standard: Down (0) when expanded, Right (-90) when collapsed
+            },
+        };
+    },
     mantineTableBodyRowProps: ({ row }) => ({
         style: {
             backgroundColor: row.getIsSelected() ? 'var(--mantine-color-blue-0)' : undefined, // Light blue highlight
@@ -305,7 +361,7 @@ export function IssueTreeTable({
     },
     mantineTableHeadRowProps: {
         style: {
-            backgroundColor: 'white', 
+             backgroundColor: 'white',
         }
     },
     mantineTableHeadCellProps: {
@@ -323,14 +379,10 @@ export function IssueTreeTable({
         highlightOnHover: true,
         withTableBorder: true,
         withColumnBorders: true,
-        style: { tableLayout: 'fixed' }, // Enforce fixed layout
+        style: { tableLayout: 'fixed', width: '100%' }, // Force full width and fixed layout
     },
-    layoutMode: 'grid', // Enable grid mode for stricter sizing control
+    layoutMode: 'grid', // Revert to semantic table to fill space better
   });
-
-  // Debug Logging
-  console.log('[IssueTreeTable] Expanded State:', expanded);
-  console.log('[IssueTreeTable] Visible Rows:', table.getRowModel().rows.map(r => `${r.id} (depth:${r.depth}, expanded:${r.getIsExpanded()})`));
 
   return <MantineReactTable table={table} />;
 }

@@ -16,20 +16,41 @@ export interface GroupStatistic {
 export interface SelectedIssueStats {
     key: string;
     summary: string;
-    cycleTime: number;
-    calendarWeeks: number;
-    average: string | null;
-    childLevel: string;
-    longestSubtask: { key: string; summary: string; val: string } | null;
-    lastSubtask: { key: string; summary: string; val: string } | null;
     
-    // New Fields for Sub-task Grouping
+    // Header Stats
+    totalCycleTime: number;
+    totalCalendarWeeks: number;
+
+    rootSummary: string | null; // Null if multiple roots or single root is selected
+    
+    // Tier Stats
+    epicStats: TierStats | null;
+    storyStats: TierStats | null; // Includes Story, Task, Bug, etc.
+    
+    // Existing Complex Sub-task Grouping
     subTaskStats?: {
         groups: GroupStatistic[];
         longestGroup: GroupStatistic | null;
         lastGroup: GroupStatistic | null;
         globalAverage: string; // X ± Y work days
     };
+}
+
+export interface TierStats {
+    count: number;
+    average: string | null;
+    longest: { key: string; summary: string; val: string; url?: string } | null;
+    last: { key: string; summary: string; val: string; url?: string } | null;
+    distribution: TierDistributionItem[]; // For plotting
+}
+
+export interface TierDistributionItem {
+    id: string;
+    key: string;
+    summary: string;
+    value: number;
+    category: string; // e.g. "Story", "Bug" for Story tier; "Epic" for Epic tier
+    url?: string;
 }
 
 
@@ -64,60 +85,32 @@ function calculateMeanStdDev(values: number[]): { mean: number; stdDev: number; 
     return { mean: 0, stdDev: 0, str: '' };
 }
 
-/**
- * Optimized descendant retrieval using an Adjacency Map.
- * O(Descendants) complexity instead of O(Total * Descendants)
- */
-function getAllDescendantsFast(rootId: string, relationsMap: Map<string, string[]>, allIssuesMap: Map<string, IssueTimeline>): IssueTimeline[] {
-    const results: IssueTimeline[] = [];
-    const queue = [rootId];
-    
-    while(queue.length > 0) {
-        const currentId = queue.shift()!;
-        const childrenKeys = relationsMap.get(currentId) || [];
-        
-        childrenKeys.forEach(childKey => {
-            const childNode = allIssuesMap.get(childKey);
-            if (childNode) {
-                results.push(childNode);
-                queue.push(childKey); // Continue BFS
-            }
-        });
-    }
-    return results;
-}
-
 export function calculateIssueStats(
     rowSelection: MRT_RowSelectionState,
     timelineData: IssueTimeline[] | null,
-    relationsMap?: Map<string, string[]>, 
+    _relationsMap?: Map<string, string[]>, 
     subTaskGroups: SubTaskGroup[] = []
 ): SelectedIssueStats | null {
-    const selectedKeys = Object.keys(rowSelection);
+    const selectedKeys = Object.keys(rowSelection).filter(k => rowSelection[k]);
     if (selectedKeys.length === 0 || !timelineData) return null;
     
-    // In single selection mode, use the first key
-    const selectedId = selectedKeys.find(k => rowSelection[k] === true);
-    if (!selectedId) return null;
+    // In multi-selection mode, we select an "Anchor" (the first one) 
+    // but filter all participants based on the selection state.
+    const anchorId = selectedKeys[0];
+    const anchorIssue = timelineData.find(t => t.key === anchorId);
+    if (!anchorIssue) return null;
 
-    const selectedIssue = timelineData.find(t => t.key === selectedId);
-    if (!selectedIssue) return null;
-    if (!selectedIssue.hasChildren) return null;
+    // Participants are only those explicitly selected
+    const participantKeys = new Set(selectedKeys);
+    const participants = timelineData.filter(t => participantKeys.has(t.key));
 
-    // Use fast lookup if map is provided
-    let descendants: IssueTimeline[] = [];
-    const issueMap = relationsMap ? new Map(timelineData.map(i => [i.key, i])) : new Map();
+    const getEndDate = (issue: IssueTimeline) => {
+        if (!issue.segments || issue.segments.length === 0) return 0;
+        return issue.segments[issue.segments.length - 1].end.getTime();
+    };
 
-    if (relationsMap) {
-        descendants = getAllDescendantsFast(selectedId, relationsMap, issueMap);
-    } else {
-        descendants = getAllDescendantsRecursive(selectedId, timelineData);
-    }
-
-
-    // 1. Global Cycle Time (Selected + All Descendants)
-    // Span from earliest start to last end
-    const family = [selectedIssue, ...descendants];
+    // 1. Global Cycle Time (Span of all SELECTed issues)
+    const family = participants;
     let globalMinStart: Date | null = null;
     let globalMaxEnd: Date | null = null;
 
@@ -132,99 +125,109 @@ export function calculateIssueStats(
         ? calculateCycleTime(globalMinStart, globalMaxEnd)
         : 0;
 
-    // 2. Calendar Time (First segment start to Last segment end) -> Weeks
-    // Let's use the Global Range for consistency, as that represents the "Project/Epic Duration".
+    // 2. Calendar Time
     let calendarDays = 0;
     if (globalMinStart && globalMaxEnd) {
         calendarDays = differenceInDays(globalMaxEnd, globalMinStart);
     }
     const calendarWeeks = Number((calendarDays / 7).toFixed(1));
 
-    // Stats based on One Level Down (Direct Children)
-    const children = timelineData.filter(t => t.parentId === selectedId);
-    const childLevel = (selectedIssue.issueType === 'Epic' || selectedIssue.issueType === 'Feature') ? 'Story/Task' : 'Sub-task';
+    // 3. Root Summary Logic ("Highest Level")
+    // Find depth of all participants
+    // Assuming 'depth' property exists on IssueTimeline (and is correct relative to view)
+    // If not, we might need to rely on 'parentId' logic. But 'depth' is pre-calculated.
+    let rootSummary: string | null = null;
+    if (participants.length > 0) {
+        const minDepth = Math.min(...participants.map(p => p.depth));
+        const roots = participants.filter(p => p.depth === minDepth);
+        if (roots.length === 1) {
+            rootSummary = roots[0].summary;
+        }
+    }
 
-    if (children.length === 0) {
+    const tierStats = (issues: IssueTimeline[], categoryFn: (i: IssueTimeline) => string): TierStats | null => {
+        if (issues.length === 0) return null;
+        
+        const times = issues.map(i => i.totalCycleTime).filter(t => t > 0);
+        if (times.length === 0) return null;
+
+        const { str } = calculateMeanStdDev(times);
+        
+        const longestRaw = issues.reduce((prev, curr) => (prev.totalCycleTime > curr.totalCycleTime) ? prev : curr);
+        const lastRaw = issues.reduce((prev, curr) => (getEndDate(prev) > getEndDate(curr)) ? prev : curr);
+
+        // Build Distribution
+        const distribution: TierDistributionItem[] = issues.map(i => ({
+            id: i.key,
+            key: i.key,
+            summary: i.summary,
+            value: i.totalCycleTime,
+            category: categoryFn(i),
+            url: i.url
+        }));
+
         return {
-            key: selectedIssue.key,
-            summary: selectedIssue.summary,
-            cycleTime,
-            calendarWeeks,
-            average: null,
-            childLevel,
-            longestSubtask: null,
-            lastSubtask: null
+            count: issues.length,
+            average: str,
+            longest: { key: longestRaw.key, summary: longestRaw.summary, val: formatMetric(longestRaw.totalCycleTime), url: longestRaw.url },
+            last: { key: lastRaw.key, summary: lastRaw.summary, val: formatMetric(lastRaw.totalCycleTime), url: lastRaw.url },
+            distribution
         };
-    }
-
-    // 3. Average & StdDev
-    const validCycleTimes = children
-        .map(c => c.totalCycleTime)
-        .filter(val => val > 0); // Ignore zero
-
-    let averageStr: string | null = null;
-    if (validCycleTimes.length > 0) {
-        averageStr = calculateMeanStdDev(validCycleTimes).str;
-    }
-
-    // 4. Longest Sub-task (One Level Down)
-    const longestSubtaskRaw = children.reduce((prev, current) => {
-        return (prev.totalCycleTime > current.totalCycleTime) ? prev : current;
-    });
-
-    // 5. Last Sub-task (Latest End Date) relative to Direct Children
-    const getEndDate = (issue: IssueTimeline) => {
-        if (!issue.segments || issue.segments.length === 0) return 0;
-        return issue.segments[issue.segments.length - 1].end.getTime();
     };
 
-    const lastSubtaskRaw = children.reduce((prev, current) => {
-        return (getEndDate(prev) > getEndDate(current)) ? prev : current;
-    });
+    const isEpic = (t: IssueTimeline) => t.issueType === 'Epic' || t.issueType === 'Feature' || t.issueType === 'Initiative';
+    const isSubtask = (t: IssueTimeline) => t.issueType === 'Sub-task';
+    const isStandard = (t: IssueTimeline) => !isEpic(t) && !isSubtask(t);
 
-    // --- Sub-task Grouping Statistics (Only if Epic selected) ---
-    let subTaskStats: SelectedIssueStats['subTaskStats'] | undefined;
+    const epics = participants.filter(isEpic);
+    const stories = participants.filter(isStandard);
+    
+    // Base stats
+    const stats: SelectedIssueStats = {
+        key: participantKeys.size > 1 ? `${participantKeys.size} Items` : anchorIssue.key,
+        summary: participantKeys.size > 1 ? 'Multiple items selected' : anchorIssue.summary,
+        
+        totalCycleTime: cycleTime,
+        totalCalendarWeeks: calendarWeeks,
+        rootSummary,
+        
+        epicStats: tierStats(epics, (i) => i.issueType || 'Epic'),
+        storyStats: tierStats(stories, (i) => i.issueType || 'Story'),
+    };
 
-    // Ensure we are selecting an Epic or Feature to run this deeper analysis
-    if (selectedIssue.issueType === 'Epic' || selectedIssue.issueType === 'Feature') {
-        const allSubTasks = descendants.filter(d => d.issueType === 'Sub-task');
 
-        if (allSubTasks.length > 0) {
-            // Group them
-            const grouped = groupSubTasks(allSubTasks, subTaskGroups);
-            const groupStats: GroupStatistic[] = [];
+    // --- Sub-task Grouping Statistics (Only if Sub-tasks explicitly selected) ---
+    const allSelectedSubTasks = participants.filter(d => d.issueType === 'Sub-task');
 
-            // Iterate Configured groups first
-            const allGroups = [...subTaskGroups, { id: OTHER_GROUP_ID, name: OTHER_GROUP_NAME, keywords: [] }];
+    if (allSelectedSubTasks.length > 0) {
+        const grouped = groupSubTasks(allSelectedSubTasks, subTaskGroups);
+        const groupStats: GroupStatistic[] = [];
+        const allGroups = [...subTaskGroups, { id: OTHER_GROUP_ID, name: OTHER_GROUP_NAME, keywords: [] }];
 
-            allGroups.forEach(g => {
-                const tasks = grouped[g.id] || [];
-                const times = tasks.map(t => t.totalCycleTime).filter(t => t > 0);
-                
-                if (times.length > 0) {
-                    const { mean, stdDev, str } = calculateMeanStdDev(times);
-                    groupStats.push({
-                        groupId: g.id,
-                        groupName: g.name,
-                        average: mean,
-                        stdDev: stdDev,
-                        count: times.length,
-                        tooltip: str
-                    });
-                }
-            });
-
-            const allTimes = allSubTasks.map(t => t.totalCycleTime).filter(t => t > 0);
-            const globalStats = calculateMeanStdDev(allTimes);
-
-            let longestGroup: GroupStatistic | null = null;
-            if (groupStats.length > 0) {
-                longestGroup = groupStats.reduce((prev, curr) => (prev.average > curr.average) ? prev : curr);
+        allGroups.forEach(g => {
+            const tasks = grouped[g.id] || [];
+            const times = tasks.map(t => t.totalCycleTime).filter(t => t > 0);
+            
+            if (times.length > 0) {
+                const { mean, stdDev, str } = calculateMeanStdDev(times);
+                groupStats.push({
+                    groupId: g.id,
+                    groupName: g.name,
+                    average: mean,
+                    stdDev: stdDev,
+                    count: tasks.length,
+                    tooltip: str
+                });
             }
+        });
 
+        if (groupStats.length > 0) {
+            const allTimes = allSelectedSubTasks.map(t => t.totalCycleTime).filter(t => t > 0);
+            const longestGroup = groupStats.reduce((prev, curr) => (prev.average > curr.average) ? prev : curr);
+            
             // Last Group Logic
             const parentMap = new Map<string, IssueTimeline[]>();
-            allSubTasks.forEach(st => {
+            allSelectedSubTasks.forEach(st => {
                 if (st.parentId) {
                     if (!parentMap.has(st.parentId)) parentMap.set(st.parentId, []);
                     parentMap.get(st.parentId)?.push(st);
@@ -232,9 +235,7 @@ export function calculateIssueStats(
             });
 
             const lastCounts: Record<string, number> = {}; 
-            
             parentMap.forEach((siblings) => {
-                // Find sibling with max end date
                 const lastSibling = siblings.reduce((prev, curr) => (getEndDate(prev) > getEndDate(curr) ? prev : curr), siblings[0]);
                 if (getEndDate(lastSibling) > 0) {
                     const matchGroup = allGroups.find(g => grouped[g.id]?.includes(lastSibling));
@@ -245,52 +246,27 @@ export function calculateIssueStats(
             
             let lastGroup: GroupStatistic | null = null;
             let maxCount = -1;
+            
             Object.keys(lastCounts).forEach(gid => {
                 if (lastCounts[gid] > maxCount) {
                     maxCount = lastCounts[gid];
-                    const stat = groupStats.find(gs => gs.groupId === gid);
-                    if (stat) lastGroup = stat;
+                    lastGroup = groupStats.find(g => g.groupId === gid) || null;
                 }
             });
             
-            // Only populate if we have valid groups calculated
-            if (groupStats.length > 0) {
-                subTaskStats = {
-                    groups: groupStats,
-                    globalAverage: globalStats.str,
-                    longestGroup,
-                    lastGroup
-                };
-            }
+            const { str: globalAvg } = calculateMeanStdDev(allTimes);
+
+            stats.subTaskStats = {
+                groups: groupStats,
+                longestGroup: longestGroup,
+                lastGroup: lastGroup,
+                globalAverage: globalAvg
+            };
         }
     }
 
-    return {
-         key: selectedIssue.key,
-         summary: selectedIssue.summary,
-         cycleTime,
-         calendarWeeks,
-         average: averageStr,
-         childLevel,
-         longestSubtask: {
-             key: longestSubtaskRaw.key,
-             summary: longestSubtaskRaw.summary,
-             val: formatMetric(longestSubtaskRaw.totalCycleTime)
-         },
-         lastSubtask: {
-             key: lastSubtaskRaw.key,
-             summary: lastSubtaskRaw.summary,
-             val: formatMetric(lastSubtaskRaw.totalCycleTime)
-         },
-         subTaskStats
-    };
+    return stats;
 }
 
-function getAllDescendantsRecursive(rootId: string, allIssues: IssueTimeline[]): IssueTimeline[] {
-    const children = allIssues.filter(i => i.parentId === rootId);
-    let descendants = [...children];
-    children.forEach(child => {
-        descendants = descendants.concat(getAllDescendantsRecursive(child.key, allIssues));
-    });
-    return descendants;
-}
+
+// Removed unused getAllDescendantsRecursive

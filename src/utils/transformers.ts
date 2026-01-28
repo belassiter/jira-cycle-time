@@ -132,6 +132,45 @@ export function processIssueTimeline(issue: any): Omit<IssueTimeline, 'depth' | 
 }
 
 /**
+ * Filters out issues of specific types and ALL their descendants.
+ */
+export function filterTimelineByIssueType(
+    allIssues: IssueTimeline[],
+    excludedIssueTypes: string[],
+    relationsMap: Map<string, string[]>
+): IssueTimeline[] {
+    if (excludedIssueTypes.length === 0) return allIssues;
+
+    const issueTypeSet = new Set(excludedIssueTypes.map(s => s.toLowerCase()));
+    
+    // 1. Identify issues that match the excluded type
+    const matchedIssueKeys = new Set<string>();
+    allIssues.forEach(t => {
+        if (t.issueType && issueTypeSet.has(t.issueType.toLowerCase())) {
+            matchedIssueKeys.add(t.key);
+        }
+    });
+
+    if (matchedIssueKeys.size === 0) return allIssues;
+
+    // 2. Identify all descendants of these issues
+    const keysToExclude = new Set<string>(matchedIssueKeys);
+    const queue = Array.from(matchedIssueKeys);
+    while(queue.length > 0) {
+        const current = queue.shift()!;
+        const children = relationsMap.get(current) || [];
+        children.forEach(child => {
+            if (!keysToExclude.has(child)) {
+                keysToExclude.add(child);
+                queue.push(child);
+            }
+        });
+    }
+
+    return allIssues.filter(t => !keysToExclude.has(t.key));
+}
+
+/**
  * Filter segments by status and return a new timeline array
  */
 export function filterTimelineStatuses(timelines: IssueTimeline[], ignoreStatuses: string[]): IssueTimeline[] {

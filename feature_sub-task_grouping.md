@@ -38,4 +38,19 @@ Analyze statistical data on sub-tasks across multiple Stories under an Epic
 - CID - CID
 - GDS - GDS
 
+# Default Status Groups
+- In Progress - 
+- Testing - 
+- Review - 
+
+Maybe I wont' do status Groups?
+New feature: Status Groups.
+It's generally similar to Sub-task Groups. The goal is for the user to define Status Groups that will choose some number of statuses that will be lumped together for the bar graph and statistics
+1) On the settings screen, add new columns, on the left, for Status Groups and Available Statuses.
+2) Make the existing columns half as wide, so everything can fit.
+3) The two new columns should have the same format and look of Sub-task Group and Available Sub-tasks.
+4) Default Status Groups can be found in feature_sub-task_grouping.md
+5) Any status that is not mapped to a Status Group shall not be included in the bar chart or statistics.
+
+
 

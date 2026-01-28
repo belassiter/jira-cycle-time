@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { processIssueTimeline, filterTimelineStatuses, processParentsAndChildren } from './transformers';
+import { processIssueTimeline, filterTimelineStatuses, processParentsAndChildren, filterTimelineByIssueType } from './transformers';
 
 describe('processIssueTimeline', () => {
     it('should create a timeline from basic issue data', () => {
@@ -145,6 +145,48 @@ describe('filterTimelineStatuses', () => {
     
     expect(filtered[0].segments).toHaveLength(1);
     expect(filtered[0].totalCycleTime).toBe(5);
+  });
+});
+
+describe('filterTimelineByIssueType', () => {
+  it('cascades exclusion from parent to children', () => {
+    const timeline: any[] = [
+      { key: 'TASK-1', issueType: 'Task', summary: 'Task 1', segments: [] },
+      { key: 'SUB-1', issueType: 'Sub-task', summary: 'Sub 1', segments: [] },
+      { key: 'STORY-1', issueType: 'Story', summary: 'Story 1', segments: [] },
+      { key: 'SUB-2', issueType: 'Sub-task', summary: 'Sub 2', segments: [] }
+    ];
+    const relationsMap = new Map<string, string[]>([
+      ['TASK-1', ['SUB-1']],
+      ['STORY-1', ['SUB-2']]
+    ]);
+    const excludedTypes = ['Task']; // Exclude Tasks
+    
+    const filtered = filterTimelineByIssueType(timeline, excludedTypes, relationsMap);
+    
+    const keys = filtered.map(item => item.key);
+    // Both Task 1 and its descendant Sub 1 should be gone
+    expect(keys).not.toContain('TASK-1');
+    expect(keys).not.toContain('SUB-1');
+    // Story 1 and its descendant Sub 2 should remain
+    expect(keys).toContain('STORY-1');
+    expect(keys).toContain('SUB-2');
+  });
+
+  it('cascades exclusion multiple levels deep', () => {
+    const timeline: any[] = [
+      { key: 'GRAND-1', issueType: 'Epic', summary: 'GP', segments: [] },
+      { key: 'PARENT-1', issueType: 'Story', summary: 'P', segments: [] },
+      { key: 'CHILD-1', issueType: 'Sub-task', summary: 'C', segments: [] }
+    ];
+    const relationsMap = new Map<string, string[]>([
+      ['GRAND-1', ['PARENT-1']],
+      ['PARENT-1', ['CHILD-1']]
+    ]);
+    
+    // Exclude Epic -> Parent and Child should also go
+    const filtered = filterTimelineByIssueType(timeline, ['Epic'], relationsMap);
+    expect(filtered.length).toBe(0);
   });
 });
 

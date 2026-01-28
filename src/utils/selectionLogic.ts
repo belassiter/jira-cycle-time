@@ -1,6 +1,60 @@
 // src/utils/selectionLogic.ts
 import { type MRT_RowSelectionState, type MRT_Updater } from 'mantine-react-table';
 
+/**
+ * Updates selection to include/exclude all descendants of the primary target.
+ * Returns a new MRT_RowSelectionState.
+ */
+export const handleToggleWithDescendants = (
+    updater: MRT_Updater<MRT_RowSelectionState>,
+    currentSelection: MRT_RowSelectionState,
+    relationsMap: Map<string, string[]>
+): MRT_RowSelectionState => {
+    const nextSelection = typeof updater === 'function' ? updater(currentSelection) : updater;
+
+    const oldKeysSet = new Set(Object.keys(currentSelection).filter(k => currentSelection[k]));
+    const newKeysSet = new Set(Object.keys(nextSelection).filter(k => nextSelection[k]));
+
+    // Find what changed (Performance optimized: O(N) using Sets)
+    const added: string[] = [];
+    newKeysSet.forEach(k => {
+        if (!oldKeysSet.has(k)) added.push(k);
+    });
+
+    const removed: string[] = [];
+    oldKeysSet.forEach(k => {
+        if (!newKeysSet.has(k)) removed.push(k);
+    });
+
+    const result = { ...nextSelection };
+
+    // Function to recursively get all children
+    const getDeepChildren = (id: string, acc: string[] = []) => {
+        const children = relationsMap.get(id) || [];
+        children.forEach(c => {
+            acc.push(c);
+            getDeepChildren(c, acc);
+        });
+        return acc;
+    };
+
+    if (added.length > 0) {
+        added.forEach(id => {
+            const children = getDeepChildren(id);
+            children.forEach(c => { result[c] = true; });
+        });
+    }
+
+    if (removed.length > 0) {
+        removed.forEach(id => {
+            const children = getDeepChildren(id);
+            children.forEach(c => { delete result[c]; });
+        });
+    }
+
+    return result;
+};
+
 export const handleSingleSelectionChange = (
   updater: MRT_Updater<MRT_RowSelectionState>,
   currentSelection: MRT_RowSelectionState

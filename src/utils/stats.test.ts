@@ -39,28 +39,13 @@ describe('Stats Logic - Advanced Requirements', () => {
         const child = createMock('CHILD', 'PARENT', 1, tenDaysAgo, tenDaysAgo, 'Sub-task');
 
         const data = [parent, child];
-        const selection = { 'PARENT': true };
-
-        // Real Cycle Time logic uses calculateCycleTime(start, end)
-        // Global Start: tenDaysAgo. Global End: now.
-        // Diff: approx 10 days (assuming work days, checks weekends).
-        // 16th (Tue) to 26th (Fri). 
-        // 16, 17, 18, 19 (Fri) = 4 days
-        // 20, 21 (Weekend)
-        // 22, 23, 24, 25, 26 = 5 days
-        // Total ~9 days.
-        
-        // We need to mock calculateCycleTime or trust the integration? 
-        // ideally unit test stats logic.
-        // I will trust the integration uses the util.
-        
-        // The test mainly verifies we picked the right Dates to feed into the calculator.
-        // But calculateIssueStats calls calculateCycleTime internally. 
+        // SELECT ALL to include them in the new hierarchical logic
+        const selection = { 'PARENT': true, 'CHILD': true };
         
         const stats = calculateIssueStats(selection, data);
         
         // We expect Cycle Time to be significantly larger than just the parent's 2 days.
-        expect(stats?.cycleTime).toBeGreaterThan(5); 
+        expect(stats?.totalCycleTime).toBeGreaterThan(5); 
     });
 
     it('should determine correct child level title', () => {
@@ -68,15 +53,15 @@ describe('Stats Logic - Advanced Requirements', () => {
         epic.hasChildren = true;
         const story = createMock('STORY', 'EPIC', 0, now, now, 'Story');
         
-        const statsEpic = calculateIssueStats({ 'EPIC': true }, [epic, story]);
-        expect(statsEpic?.childLevel).toBe('Story/Task');
+        const statsEpic = calculateIssueStats({ 'EPIC': true, 'STORY': true }, [epic, story]);
+        expect(statsEpic?.storyStats).toBeDefined();
 
         const task = createMock('TASK', undefined, 0, now, now, 'Task');
         task.hasChildren = true;
-        const sub = createMock('SUB', 'TASK', 0, now, now, 'Sub-task');
+        const sub = createMock('SUB', 'TASK', 1, now, now, 'Sub-task');
         
-        const statsTask = calculateIssueStats({ 'TASK': true }, [task, sub]);
-        expect(statsTask?.childLevel).toBe('Sub-task');
+        const statsTask = calculateIssueStats({ 'TASK': true, 'SUB': true }, [task, sub]);
+        expect(statsTask?.subTaskStats).toBeDefined();
     });
 
     it('should calculate Average and StdDev ignoring zeros', () => {
@@ -87,10 +72,64 @@ describe('Stats Logic - Advanced Requirements', () => {
          const c2 = createMock('C2', 'P', 6, now, now, 'Sub-task');
          const c3 = createMock('C3', 'P', 0, now, now, 'Sub-task');
 
-         const stats = calculateIssueStats({ 'P': true }, [parent, c1, c2, c3]);
+         const stats = calculateIssueStats({ 'P': true, 'C1': true, 'C2': true, 'C3': true }, [parent, c1, c2, c3]);
          
          // Avg of 4 and 6 is 5.
          // StdDev: Mean=5. (4-5)^2 + (6-5)^2 = 1 + 1 = 2. Variance = 2 / (2-1) = 2. StdDev = 1.414... -> 1.4
-         expect(stats?.average).toBe("5 ± 1.4 work days");
+         expect(stats?.subTaskStats?.globalAverage).toBe("5 ± 1.4 work days");
+    });
+
+    describe('Sub-task Grouping Stats', () => {
+        const GROUPS = [
+            { id: 'dev', name: 'Dev', keywords: ['dev'] },
+            { id: 'test', name: 'Test', keywords: ['test'] }
+        ];
+
+        it('should calculate statistics per group', () => {
+             const parent = { ...createMock('P', undefined, 0, now, now, 'Epic'), hasChildren: true };
+             
+             // Dev Group: 10 days
+             const c1 = { ...createMock('C1', 'P', 10, now, new Date(now.getTime() + (10*86400000)), 'Sub-task'), summary: 'dev work' };
+             
+             // Test Group: 20 days
+             const c2 = { ...createMock('C2', 'P', 20, now, new Date(now.getTime() + (20*86400000)), 'Sub-task'), summary: 'testing' };
+
+             const selection = { 'P': true, 'C1': true, 'C2': true };
+             const stats = calculateIssueStats(selection, [parent, c1, c2], undefined, GROUPS as any);
+             
+             expect(stats?.subTaskStats?.groups).toBeDefined();
+             expect(stats?.subTaskStats?.groups).toHaveLength(2);
+             
+             const devGroup = stats?.subTaskStats?.groups.find(g => g.groupName === 'Dev');
+             const testGroup = stats?.subTaskStats?.groups.find(g => g.groupName === 'Test');
+             
+             expect(devGroup?.average).toBe(10);
+             expect(testGroup?.average).toBe(20);
+             
+             expect(stats?.subTaskStats?.longestGroup?.groupName).toBe('Test');
+        });
+
+        it('should determine the "Last" group correctly', () => {
+             const parent = { ...createMock('P', undefined, 0, now, now, 'Epic'), hasChildren: true };
+             
+             const t1 = new Date('2024-01-01');
+             const t2 = new Date('2024-01-05');
+             const t3 = new Date('2024-01-10');
+
+             // Group A ends on t2
+             const c1 = { ...createMock('C1', 'P', 5, t1, t2, 'Sub-task'), summary: 'group a' };
+             
+             // Group B ends on t3 (Latest)
+             const c2 = { ...createMock('C2', 'P', 5, t2, t3, 'Sub-task'), summary: 'group b' };
+
+             const groups = [
+                 { id: 'a', name: 'A', keywords: ['a'] },
+                 { id: 'b', name: 'B', keywords: ['b'] }
+             ];
+
+             const selection = { 'P': true, 'C1': true, 'C2': true };
+             const stats = calculateIssueStats(selection, [parent, c1, c2], undefined, groups as any);
+             expect(stats?.subTaskStats?.lastGroup?.groupName).toBe('B');
+        });
     });
 });

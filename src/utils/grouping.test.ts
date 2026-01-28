@@ -53,4 +53,31 @@ describe('Sub-task Grouping Logic', () => {
          // Since 'review' group is first now:
          expect(classifySubTask('Code Review', reorderedGroups)).toBe('review');
     });
+
+    describe('Wildcard Matching', () => {
+        const WILDCARD_GROUPS: SubTaskGroup[] = [
+            { id: 'automation', name: 'Automation', keywords: ['auto*', 'script'] },
+            { id: 'embedded', name: 'Embedded', keywords: ['embed*'] }
+        ];
+
+        it('should match start of word with *', () => {
+            expect(classifySubTask('Automated Test', WILDCARD_GROUPS)).toBe('automation');
+            expect(classifySubTask('Automation Suite', WILDCARD_GROUPS)).toBe('automation');
+            expect(classifySubTask('Autoscale logic', WILDCARD_GROUPS)).toBe('automation');
+        });
+
+        it('should match end of word with * (treated as contains)', () => {
+            // My implementation uses .includes() after stripping *, so it matches anywhere
+            expect(classifySubTask('The dev-script', WILDCARD_GROUPS)).toBe('automation');
+        });
+
+        it('should match anywhere in string when using stripped wildcard logic', () => {
+            expect(classifySubTask('SW embedded SW', WILDCARD_GROUPS)).toBe('embedded');
+            expect(classifySubTask('EMBEDDED', WILDCARD_GROUPS)).toBe('embedded');
+        });
+
+        it('should not match if substring is missing', () => {
+            expect(classifySubTask('Manual Test', WILDCARD_GROUPS)).toBe(OTHER_GROUP_ID);
+        });
+    });
 });

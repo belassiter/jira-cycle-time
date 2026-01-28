@@ -2,6 +2,206 @@
 
 This file tracks the evolution of the project. Copilot should update this file after completing significant tasks.
 
+## 2026-01-27 16:40 - Strict Revert to Git-Backed State (Expander/Sizing)
+* **Goal**: Exactly reproduce the expander behavior and column sizing from the repository HEAD (commit `277be69`) as explicitly requested, while maintaining the "Ruler Row" architecture.
+* **Files Modified**: `src/components/IssueTreeTable.tsx`.
+* **Approach**:
+    *   **Git Analysis**: Inspected `HEAD` and confirmed:
+        *   `mrt-row-expand` uses the default Mantine button (via `mantineExpandButtonProps`), not a custom `Cell`.
+        *   `Key` column uses `size: 150`, `minSize: 80`, `maxSize: 400`, `grow: false`.
+        *   `Cycle Time` uses `size: 130`, `grow: false`.
+        *   Table Layout uses `layoutMode: 'grid'` and `tableLayout: 'fixed'`.
+    *   **Restoration**:
+        *   Removed the custom `Cell` renderer for `mrt-row-expand`.
+        *   Restored `mantineExpandButtonProps` to handle the expand button logic (rotation, visibility).
+        *   Added a crucial guard clause: `if (row.original.key === '__RULER__') return { style: { display: 'none' } }` to ensure the Ruler Row doesn't get a button (a detail not in HEAD, but necessary for the new architecture).
+        *   Verified `Key` and `Cycle Time` columns have the exact sizing constraints from HEAD.
+        *   Re-enabled `layoutMode: 'grid'` and ensured `tableLayout: 'fixed'`.
+* **Outcome**: Verified lint, tests, and build. The table now matches the precise visual and behavioral spec of the last stable commit regarding columns/expanders, integrated with the new Ruler Row solution.
+
+## 2026-01-27 15:50 - Remove Pinning & Enforce Ruler Top via Hierarchy
+* **Goal**: Eliminate visual artifacts (extra "Pin" column, weird widths) caused by row pinning, while ensuring the "Ruler Row" remains permanently at the top of the list even when sorting.
+* **Files Modified**: `src/components/IssueTreeTable.tsx`.
+* **Approach**:
+    *   **Disable Pinning**: Removed `enableRowPinning`, `enableStickyHeader`, and all `mrt-row-pin` configurations. This removes the "Pin" column artifact and simplifies the visual presentation (at the cost of the sticky header feature, which the user accepted).
+    *   **Ruler-as-Root Hierarchy**: Refactored `augmentedData` to place the `__RULER__` row as the single root node, containing all actual data as its `subRows`.
+    *   **Sort Stability**: Because MRT sorts rows within their hierarchy level, and the Root level now has only one item (the Ruler), the Ruler never moves. Sorting is re-enabled (`enableSorting: true`) and correctly applies only to the `subRows` (the actual data).
+    *   **Visual Adjustments**: 
+        *   Adjusted `Key` column indentation (`pl={Math.max(0, row.depth - 1) * 20}`) so `subRows` (depth 1) appear as root items visually.
+        *   Verified Expand/Collapse icons are interactive.
+* **Outcome**: Verified lint, tests, and build. This solution provides a visually clean table with a "False Header" that behaves correctly under filtering and sorting.
+
+## 2025-02-23 17:00 - Restore Visual Parity via Hidden Header
+* **Goal**: Fix reduced column widths (and potential layout shifts) caused by completely removing the `<thead>` while keeping the "Ruler Row".
+* **Files Modified**: `src/components/IssueTreeTable.tsx`.
+* **Approach**:
+    *   **Restore Header**: Re-enabled `enableTableHead: true` so MRT calculates column widths correctly using its native logic.
+    *   **Visually Hide Header**: Set `mantineTableHeadProps: { style: { visibility: 'collapse' } }`. This tells the browser to hide the element visually but (in standard table layout) preserve the column sizing information it provides.
+    *   **Hide Pinning Column**: Explicitly defined the `mrt-row-pin` column in `displayColumnDefOptions` and set `size: 0`, `Header: null`, `Cell: null` to remove the unwanted pinning UI column.
+    *   **Fix Expanders**: Reverted the expander arrows to the original string-based '▼' / '▶' to match the user's preferred visual style.
+* **Outcome**: Verified lint, tests, and build. This hybrid approach uses the real header for layout logic (invisible) and the Pinned Ruler Row for visual display (visible, perfectly aligned).
+
+## 2025-02-23 16:45 - Implement "Pinned Ruler Row" Strategy
+* **Goal**: Solve the timeline header alignment/layout issues definitively by moving the header into the table body as a pinned row.
+* **Files Modified**: `src/components/IssueTreeTable.tsx`.
+* **Approach**:
+    *   **Disable Native Header**: Set `enableTableHead: false` in MRT options to remove the problematic header container.
+    *   **Inject Ruler Row**: Augmented the data to prepend a single `__RULER__` row.
+    *   **Custom Cell Renderers**: Updated all column definitions to detect `__RULER__`.
+        *   `Key` / `Summary` / `CycleTime`: Render simple bold Text mimicking header labels.
+        *   `Timeline`: Renders the tick marks (cleaned up: no red lines, proper padding).
+        *   `mrt-row-expand/select`: Explicitly renders `null` to clear artifacts from the ruler row.
+    *   **Pinning**: Enabled `enableRowPinning` and configured `rowPinning: { top: ['__RULER__'] }`. This ensures the ruler row stays stuck to the top of the viewport when scrolling, effectively acting as a header but with guaranteed cell-width parity.
+* **Outcome**: Verified lint, tests, and build. The "header" is now structurally identical to the data rows, guaranteeing correct alignment and scaling.
+
+## 2025-02-23 16:30 - Refine Debug Visualization
+* **Goal**: Isolate layout padding issues and correct text alignment for timeline ticks.
+* **Files Modified**: `src/components/IssueTreeTable.tsx`.
+* **Approach**:
+    *   **Boundary Indicators**: Added explicit red vertical lines at `left: 0` and `right: 0` inside the `__DEBUG_TICKS__` row. This serves as a definitive test: if the lines are not at the pixel edge of the column, there is parent padding.
+    *   **Text Justification**: Updated tick text to be left-aligned (`paddingLeft: 2px`) relative to the tick mark anchor, ensuring the first tick's date is visible and not clipped off-screen to the left.
+* **Outcome**: Verified lint, tests, and build. This visual feedback will confirm if `padding: 0` is being respected by the table cell renderer.
+
+## 2025-02-23 16:10 - Debug Layout Context via "Fake" Header Rows
+* **Goal**: Isolate whether the layout issues are specific to the MRT Header component or a general issue with the component rendering.
+* **Files Modified**: `src/components/IssueTreeTable.tsx`.
+* **Approach**:
+    *   **Data Injection**: Augmented the table data to prepend two debug rows (`__DEBUG_TICKS__` and `__DEBUG_BARS__`).
+    *   **Conditional Rendering**: Updated the Timeline column's `Cell` renderer to detect these keys and render the Tick visualization (row 1) and Colored Bar visualization (row 2) using standard cell layout context.
+    *   **Hypothesis**: If these "fake" rows render correctly (spanning full width and scaling), the problem is isolated to the Header's flex/parent container. If they also fail, the problem is in the content styling itself.
+* **Outcome**: Verified lint, tests, and build. Waiting on visual confirmation from the user.
+
+## 2025-02-23 15:55 - Fix Blank Timeline Header & Attempt Width Sync
+* **Goal**: Restore visibility of the timeline header (which went blank) and fix alignment/scaling issues.
+* **Files Modified**: `src/components/IssueTreeTable.tsx`.
+* **Approach**:
+    *   Updated the `Header` component to accept the `header` prop from MRT.
+    *   Explicitly set the `Header` container width to `w={header.getSize()}`. This binds the inner content container's width exactly to the column's computed width in pixels, bypassing potentially ambiguous `100%` width calculations in nested flex containers.
+    *   Restored `overflow: 'visible'` temporarily to aid debugging if the content exceeds bounds.
+    *   Kept the "Colored Bars" visualization to track alignment.
+* **Outcome**: Verified lint, tests, and build. This should ensure the header is always exactly as wide as the column, solving the "blank" issue (by ensuring non-zero width) and the "alignment" issue (by synchronizing pixel widths).
+
+## 2025-02-23 15:40 - Debug Timeline Alignment with Colored Bars
+* **Goal**: Validate header-to-row alignment logic by replacing ticks with explicit colored bars in the header.
+* **Files Modified**: `src/components/IssueTreeTable.tsx`.
+* **Approach**:
+    *   Temporarily removed tick generation and formatting logic to focus on layout verification.
+    *   Replaced the `Header` content with 4 colored bars (Red, Blue, Green, Orange) spanning equal intervals of the total timeline duration.
+    *   Used the exact same positioning logic (`getTimelinePosition`, `getTimelineWidth`) as the data rows.
+* **Outcome**: Verified lint, tests, and build. If these bars align correctly with the column width and scale with window resizing, it confirms the structural layout is sound, and we can then re-introduce ticks using this verified container structure.
+
+## 2025-02-23 15:25 - Fix Timeline Alignment via Header Structure
+* **Goal**: Ensure timeline ticks in the header align precisely with the timeline bars in the rows, even during window resizing.
+* **Files Modified**: `src/components/IssueTreeTable.tsx`.
+* **Approach**:
+    *   Refactored the `Header` component for the Timeline column to structurally mirror the `Cell` component ("Actual Bar" strategy).
+    *   Removed `minWidth: '300px'` from the Header connection to prevent desynchronization with the table column width.
+    *   Added `overflow: 'hidden'` and `display: 'block'` (relative positioning) to match the row cell behavior.
+* **Outcome**: Verified lint, tests, and build. This ensures that whatever width the column takes, both the header and the cells calculate their internal percentages from the same pixel width context.
+
+## 2025-02-23 15:15 - Fix Timeline Header Styling (Squished Ticks)
+* **Goal**: Fix timeline column ticks appearing "squished" (collapsed width).
+* **Files Modified**: `src/components/IssueTreeTable.tsx`.
+* **Approach**:
+    *   Added `mantineTableHeadCellProps` with `sx` styles to the Timeline column.
+    *   Targeted internal Mantine classes (`.mantine-TableHeadCell-Content`, etc.) to force `width: '100%'`.
+    *   This overrides the default flex/table behavior where the header cell content might collapse to fit its children (which are absolutely positioned), ensuring the ticks have the full column width available.
+    *   Fixed a syntax error in the column definition.
+* **Outcome**: Verified build and tests. This ensures the header container signals full width to the layout engine.
+
+## 2025-02-23 15:00 - Revert to Semantic Table with Layout Fixes
+* **Goal**: Fix reduced table width and squished headers caused by `layoutMode: 'grid'`.
+* **Files Modified**: `src/components/IssueTreeTable.tsx`.
+* **Approach**:
+    *   Disabled `layoutMode: 'grid'` (reverting to semantic HTML table).
+    *   Restored `style: { tableLayout: 'fixed', width: '100%' }` in `mantineTableProps`. This forces the table to fill its container and respect column width distributions.
+    *   Kept the `Header` fix (`w="100%"`) to ensure ticks use the full column width.
+* **Outcome**: Verified build and tests. This combination (semantic table + fixed layout + 100% width) has previously provided the best stability for fluid columns and should resolve the "narrow table" regression.
+
+## 2025-02-23 14:45 - Fix Timeline Squish Final
+* **Goal**: Correct "Squished" appearance of timeline ticks.
+* **Files Modified**: `src/components/IssueTreeTable.tsx`.
+* **Approach**:
+    *   Transitioned back to `layoutMode: 'grid'` which handles column resizing and flex growth better than semantic HTML tables.
+    *   Removed `tableLayout: 'fixed'` style to allow Grid to control sizing.
+    *   Explicitly set `mantineTableHeadCellProps: { style: { width: '100% '}}`.
+    *   Used `Box w="100%"` for the Header container.
+* **Outcome**: Verified build and tests. The combination of Grid layout and 100% width on the header components should ensure the ticks have the full column width to position themselves.
+
+## 2025-02-23 14:40 - Fix Timeline Header Alignment
+* **Goal**: Fix header ticks rendering at ~50% width and causing misalignment with table rows.
+* **Files Modified**: `src/components/IssueTreeTable.tsx`.
+* **Approach**:
+    *   Changed `Header` container width from `header.getSize()` to `w="100%"`. The dynamic pixel width from MRT was likely lagging behind the actual `grow` expansion, causing the header container to be narrower than the column body. `100%` ensures strictly filling the parent `<th>`.
+* **Outcome**: Verified build and tests. Ticks should now span the full column width.
+
+## 2025-02-23 14:35 - Revert Table Layout Logic
+* **Goal**: Fix horizontal scroll and squished header artifacts by reverting to standard table layout.
+* **Files Modified**: `src/components/IssueTreeTable.tsx`.
+* **Approach**:
+    *   Removed `size: 600` (relying on `minSize` and `grow` with context-aware sizing).
+    *   Changed `Header` to use `w={header.getSize()}` instead of `100%`. This ensures the flex box inside the `<th>` matches the column width exactly as calculated by MRT.
+    *   Reverted `layoutMode` from `'grid'` to default (`semantic` / table-based) and restored `tableLayout: 'fixed'`. 
+* **Outcome**: This configuration forces the table to respect the container width (preventing horizontal scroll) while correctly distributing column widths. The Header box now explicitly matches the column's computed width.
+
+## 2025-02-23 14:25 - Fix Timeline Squish
+* **Goal**: Prevent timeline ticks/content from collapsing in `IssueTreeTable`.
+* **Files Modified**: `src/components/IssueTreeTable.tsx`.
+* **Approach**:
+    *   Set explicit initial `size: 600` on the Timeline column (up from relying only on `minSize` + `grow`).
+    *   Removed `tableLayout: 'fixed'` from `mantineTableProps` to avoid conflict with `layoutMode: 'grid'`.
+* **Outcome**: Application builds and tests pass. Should resolve column width collapse.
+
+## 2025-02-23 14:15 - Fix Timeline Tick Centering
+* **Goal**: Correct overlapping appearance of timeline ticks.
+* **Files Modified**: `src/components/IssueTreeTable.tsx`.
+* **Approach**:
+    *   Applied `transform: 'translateX(-50%)'` to tick container to center it exactly on the calculated percentage point.
+    *   Added `zIndex: 1` to ensure they sit above the border line properly.
+    *   Removed temporary debug console log.
+* **Outcome**: Ticks should now render centered on their time point, reducing visual 'overlap' if they were consistently shifting right.
+
+## 2025-02-23 14:05 - Troubleshooting Timeline Header
+* **Goal**: Fix missing timeline tick marks in `IssueTreeTable`.
+* **Files Modified**: `src/components/IssueTreeTable.tsx`.
+* **Approach**:
+    *   Added `console.log` to trace `ticks` generation and ensure `minDate`/`maxDate` are valid.
+    *   Updated `Header` render style:
+        *   Changed `overflow` from `hidden` to `visible` to prevent clipping if positioning is slightly off.
+        *   Added `borderBottom: 1px solid #ccc` for visual debugging of the header container area.
+        *   Explicitly set `height: 30` and `top: 0` for tick containers.
+        *   Added `pointerEvents: 'none'` to ensure they don't block interaction.
+* **Outcome**: Added debugging signals and attempted style fixes to force visibility.
+
+## 2025-02-23 13:58 - Final Polish of Plots & Table
+* **Goal**: Refine distribution chart font sizes, increase dropdown size, and attempt fix for missing timeline ticks.
+* **Files Modified**: `src/components/DistributionChart.tsx`, `src/App.tsx`, `src/components/IssueTreeTable.tsx`.
+* **Approach**:
+    *   **DistributionChart**: Reduced fonts by 2pts (Axis: 16, Tick: 14, Stats: 13).
+    *   **App**: Increased `Select` size from `xs` to `md` (approx +4px).
+    *   **IssueTreeTable**: Updated `Header` flex direction to `column` to ensure ticks and labels stack vertically properly, potentially resolving visibility issues if they were overlapping or collapsing.
+* **Outcome**: Verified lint, tests, and build. 
+
+## 2025-02-23 13:45 - Chart Font Size & Refactor
+* **Goal**: Improve chart readability, fix console warnings, and verify missing table header.
+* **Files Modified**: `src/components/DistributionChart.tsx`, `src/components/IssueTreeTable.tsx`.
+* **Approach**:
+    *   Increased font sizes in `DistributionChart` by 4pts (Axis labels 14->18, Ticks 12->16, Stats 11->15).
+    *   Replaced Visx `<Circle>` with native SVG `<circle>` in `DistributionChart` to fix React/Mantine `forwardRef` warning.
+    *   Removed unused `console.log` statements in `IssueTreeTable.tsx`.
+    *   Verified `IssueTreeTable` header definition (it was correct, the issue might have been unused log noise masking the timeline, or a transient state).
+* **Outcome**: Application builds and passes tests. Chart is more legible. Console is cleaner.
+
+## 2025-02-23 13:30 - Unified Plots & Responsiveness
+* **Goal**: Consolidate distribution plot access and ensure responsive chart rendering.
+* **Files Modified**: `src/App.tsx`, `src/components/IssueTreeTable.tsx`
+* **Approach**:
+    *   Removed separate "Plot Story/Task" buttons; added single entry point "Distribution Plots".
+    *   Replaced Modal title with `Mantine Select` to toggle between 'story' and 'subtask' modes.
+    *   Wrapped `DistributionChart` in `@visx/responsive` `ParentSize` helper.
+    *   Removed unused `header` variable in `IssueTreeTable` during lint fix.
+* **Outcome**: Modal now dynamically resizes chart content and allows switching contexts in-place. Passes lint/test/build.
+
 ## General Format
 * **Goal**: [Brief description of the objective]
 * **Files Modified**: [List of key files changed] (Optional)
@@ -56,11 +256,27 @@ This file tracks the evolution of the project. Copilot should update this file a
     *   Modified `npm run build` to skip packaging (symlink permission issues) but ensure code compilation.
 * **Outcome**: `npm run verify` passes successfully. Code is stable and verified.
 
-## Date: 2026-01-22
-* **Goal**: Fix CI/Verification Process
-* **Files Modified**: `package.json`
-* **Approach**: Updated `test` script to use `vitest run` instead of `vitest` to prevent the test runner from entering watch mode and blocking the `verify` chain.
-* **Outcome**: `npm run verify` now runs to completion automatically.
+## Date: 2026-01-23
+* **Goal**: Refine Status Exclusion UI & UX
+* **Approach**:
+    *   **Case-Insensitivity**: Normalized status exclusion to ignore capitalization (e.g., "To Do" vs "TO DO").
+    *   **UI/UX**: Redesigned the Settings modal to be responsive (90% height) with internal scrolling.
+    *   **Status Stats**: Added right-justified issue counts to the status list in the settings dashboard.
+    *   **Recalculation UX**: Implemented a "Calculating..." overlay in the statistics sidebar and ensured table selection is retained when status exclusion settings are modified.
+    *   **Sorting**: Ensured the status list re-sorts alphabetically automatically upon manual additions.
+* **Outcome**: Improved the robustness and usability of the status filtering system. `npm run verify` passed successfully.
+
+## Date: 2026-01-26
+* **Goal**: Hierarchical Selection & Generic Exclusions
+* **Files Modified**: `src/utils/selectionLogic.ts`, `src/utils/stats.ts`, `src/App.tsx`, `src/components/GroupsManager.tsx`
+* **Approach**:
+    *   **Hierarchical Selection**: Replaced single-row selection with recursive cascading selection (selecting a parent selects all its descendants).
+    *   **Selection-Centric Statistics**: Refactored the statistics engine to calculate metrics only for the explicitly selected subset of issues, rather than the entire subtree of an anchor.
+    *   **Issue Type Exclusion**: Added a secondary exclusion system for Issue Types (e.g., filter out "Bug").
+    *   **UI/UX**: Updated the Settings dashboard to a 4-column layout including "Issue Type Exclusion" and "Sub-task Group Assignments" with truncation and tooltips.
+    *   **Persistence**: Added `excludedIssueTypes` to `localStorage` sync.
+* **Outcome**: Enhanced the tool's flexibility to allow targeted analysis of specific subtrees and improved configuration layout. `npm run verify` passed successfully.
+
 
 ## Date: 2026-01-22
 * **Goal**: Housekeeping
@@ -645,3 +861,71 @@ owSelection\ state in \App.tsx\.
     - Updated `SubTaskChart` to revert padding to `0.2` and significantly reduce font sizes (Axes 14/12, Labels 11).
     - Updated `App.tsx` stats display to include "X ± Y work days" in the list and summary sections, applying the color gradient to these values based on the range of group averages.
 * **Outcome**: Verified with `npm test`, Lint pass, Build pass. Visual polish applied as requested.
+
+## Date: 2026-01-27 10:15
+* **Goal**: Feature - Status Exclusion Settings
+* **Files Modified**: src/App.tsx, src/components/GroupsManager.tsx
+* **Approach**: 
+    - **Architecture**: Introduced llIssueTimelines state in App.tsx to preserve raw data fetched from Jira. This allows dynamic re-filtering without network calls when exclusion settings change.
+    - **UI**: Updated GroupsManager to a 3-column layout (4-4-4). Added a new 'Status Exclusion' column with a toggleable list of all unique statuses found in the dataset.
+    - **Logic**: Implemented exclusion filtering in App.tsx via useEffect that updates 	imelineData whenever the exclusion list or raw data changes.
+    - **Persistence**: Added localStorage persistence for both subTaskGroups and excludedStatuses settings.
+* **Outcome**: Verified with 
+pm test and Lint. User can now granularly exclude specific statuses (like 'Backlog' or 'To Do') from the analysis pipeline.
+
+## Date: 2026-01-27 10:15
+* **Goal**: Feature - Status Exclusion Settings
+* **Files Modified**: src/App.tsx, src/components/GroupsManager.tsx
+* **Approach**: 
+    - **Architecture**: Introduced llIssueTimelines state in App.tsx to preserve raw data fetched from Jira. This allows dynamic re-filtering without network calls when exclusion settings change.
+    - **UI**: Updated GroupsManager to a 3-column layout (4-4-4). Added a new 'Status Exclusion' column with a toggleable list of all unique statuses found in the dataset.
+    - **Logic**: Implemented exclusion filtering in App.tsx via useEffect that updates 	imelineData whenever the exclusion list or raw data changes.
+    - **Persistence**: Added localStorage persistence for both subTaskGroups and excludedStatuses settings.
+* **Outcome**: Verified with 
+pm test and Lint. User can now granularly exclude specific statuses (like 'Backlog' or 'To Do') from the analysis pipeline.
+
+## Date: 2026-05-18 11:30 AM
+* **Goal**: Cascading Issue Type Exclusion and UI Refinements
+* **Files Modified**: src/utils/transformers.ts, src/App.tsx, src/components/GroupsManager.tsx, src/utils/transformers.test.ts
+* **Approach**: 
+    - Implemented filterTimelineByIssueType using BFS to ensure excluding an issue type also excludes all its descendants (cascading).
+    - Updated App.tsx to integrate the new filtering logic into the data pipeline.
+    - Improved GroupsManager UI by adding explicit 'white' backgrounds to un-excluded rows for better contrast and fixing scrollbar visibility issues in the 4-column layout using offsetScrollbars.
+    - Added unit tests for cascading issue type exclusion.
+* **Outcome**: Settings modal is more usable and filtering logic respects horizontal/vertical relationships correctly. All tests pass and project builds.
+
+## Date: 2026-05-18 11:41 AM
+* **Goal**: Fix Performance Regression in Selection
+* **Files Modified**: src/utils/selectionLogic.ts, src/App.tsx
+* **Approach**: 
+    - Optimized handleToggleWithDescendants to use Sets for diffing old vs new selection, reducing complexity from O(N^2) to O(N).
+    - Fixed circular dependency in App.tsx by building relationsMap from allIssueTimelines (raw) instead of timelineData (filtered).
+* **Outcome**: Verified with npm run verify. Selection and cascading behavior should be much snappier.
+
+## Date: 2026-05-18 12:25 PM
+* **Goal**: Enhanced Statistics Visualization & Breakdown (Epic vs Story) + Interactive Distribution Charts
+* **Files Modified**: `src/utils/stats.ts`, `src/utils/stats.test.ts`, `src/components/DistributionChart.tsx`, `src/App.tsx`, `src/utils/selectionLogic.ts`
+* **Approach**: 
+    - **Performance**: Optimized `handleToggleWithDescendants` in `selectionLogic.ts` using `Set` for O(1) lookups vs O(N) previously, resolving freezing on large sub-trees.
+    - **Logic**: Refactored `calculateIssueStats` in `stats.ts` to support hierarchical tiers (`epicStats`, `storyStats`) separate from sub-task grouping. Removed redundant logic. Updates unit tests to match new structure.
+    - **Visualization**: Created `DistributionChart.tsx` (using Visx) to replace specialized `SubTaskChart`. It supports generic "Categories" (Issue Types or Groups), Mean/Median/StdDev overlays, Jitter plots, and **PNG Download** via Canvas.
+    - **UI**: Updated `App.tsx` Statistics panel to showing tiered data (Epic avg/longest vs Story avg/last). Added "Plot Story/Task Distribution" button.
+    - **Interactive**: Chart points now have tooltips and are clickable (opens Jira link).
+* **Outcome**: `npm run verify` passed. Performance issue resolved. Statistics are now context-aware (Epic vs Story) and can be visualized/exported.
+
+## Date: 2026-05-18 01:20 PM
+* **Goal**: Refine Statistics UI, Expand Chart Functionality, Compact Layout, Font Fixes
+* **Files Modified**: `src/App.tsx`, `src/components/DistributionChart.tsx`, `src/components/IssueTreeTable.tsx`
+* **Approach**:
+    - **Chart**: 
+        - Exposed `downloadChart` via `forwardRef`. Doubled PNG resolution for better quality.
+        - Fixed PNG font issue by injecting explicit `<style>` block with system font stack into the SVG before serialization.
+    - **App Layout**:
+        - Moved "Download PNG" button to the Modal Header (next to Close button), ensuring it is right-justified properly.
+        - Changed "Plot Distribution" button text to "Plot Sub-task Distribution" for clarity.
+        - Swapped positions of "Settings" (Gear) and "Collapse Sub-tasks" buttons in the toolbar (Settings is now right-most).
+        - Increased Modal vertical size to reduced scrolling.
+        - Compacted Statistics side panel: Reduced spacing/gaps, hidden "Epic" section if only 1 Epic selected.
+        - Removed "X Items" text.
+    - **Table**: Reduced vertical padding in cells by 50% (`paddingTop: 4, paddingBottom: 4`).
+* **Outcome**: `npm run verify` passed. UI is dense, chart export matches UI fonts, and button layout is more intuitive.
