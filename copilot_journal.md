@@ -2,6 +2,14 @@
 
 This file tracks the evolution of the project. Copilot should update this file after completing significant tasks.
 
+## 2026-01-28 10:00 - Implement User Credentials Management
+* **Goal**: allow users to input and save their Jira credentials (Host, Email, Token) directly within the application, rather than relying on a pre-existing JSON file.
+* **Files Modified**: 
+    *   `electron/main.ts`: Added IPC handlers `has-credentials` (check validity) and `save-credentials` (write to `userData` path).
+    *   `src/components/CredentialsModal.tsx`: Created new component for the input form.
+    *   `src/App.tsx`: Added state to track credential validity, a check on mount to prompt new users, and a toolbar button to edit credentials manually.
+* **Outcome**: Verified build. Users now have a first-run setup experience for connecting to their Jira instance.
+
 ## 2026-01-27 16:40 - Strict Revert to Git-Backed State (Expander/Sizing)
 * **Goal**: Exactly reproduce the expander behavior and column sizing from the repository HEAD (commit `277be69`) as explicitly requested, while maintaining the "Ruler Row" architecture.
 * **Files Modified**: `src/components/IssueTreeTable.tsx`.

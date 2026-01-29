@@ -3,7 +3,7 @@ import { AppShell, Group, Text, TextInput, Button, Container, Paper, Alert, Stac
 import { useDisclosure } from '@mantine/hooks';
 import { startOfWeek, addDays, differenceInMinutes } from 'date-fns';
 import { type MRT_ExpandedState, type MRT_RowSelectionState, type MRT_Updater } from 'mantine-react-table';
-import { IconSettings, IconChartDots, IconDownload } from '@tabler/icons-react';
+import { IconSettings, IconChartDots, IconDownload, IconKey } from '@tabler/icons-react';
 import { ParentSize } from '@visx/responsive';
 
 import { processParentsAndChildren, IssueTimeline, filterTimelineStatuses, buildIssueTree, filterTimelineByIssueType } from './utils/transformers';
@@ -12,6 +12,7 @@ import { calculateIssueStats, formatMetric, type SelectedIssueStats, type GroupS
 import { handleToggleWithDescendants } from './utils/selectionLogic';
 import { IssueTreeTable } from './components/IssueTreeTable';
 import { GroupsManager } from './components/GroupsManager';
+import { CredentialsModal } from './components/CredentialsModal';
 import { DistributionChart, DistributionChartRef } from './components/DistributionChart'; // Updated import
 import { SubTaskGroup, groupSubTasks, OTHER_GROUP_ID, OTHER_GROUP_NAME } from './utils/grouping';
 import { interpolateColor } from './utils/colors';
@@ -46,6 +47,27 @@ export default function App() {
   const [chartModalOpen, { open: openChartModal, close: closeChartModal }] = useDisclosure(false);
   const [chartType, setChartType] = useState<'subtask' | 'story'>('subtask');
   
+  // Credentials
+  const [credentialsModalOpen, { open: openCredentialsModal, close: closeCredentialsModal }] = useDisclosure(false);
+  const [hasValidCredentials, setHasValidCredentials] = useState(false);
+
+  // Check credentials on mount
+  useEffect(() => {
+    const checkCreds = async () => {
+        try {
+            // @ts-ignore
+            const exists = await window.ipcRenderer.invoke('has-credentials');
+            setHasValidCredentials(exists);
+            if (!exists) {
+                openCredentialsModal();
+            }
+        } catch (e) {
+            console.error("Failed to check credentials", e);
+        }
+    };
+    checkCreds();
+  }, []);
+
   // Persistence
   useEffect(() => {
     const saved = localStorage.getItem('jira-cycle-time-settings');
@@ -552,6 +574,12 @@ export default function App() {
                             {areSubtasksVisible ? "Collapse Sub-tasks" : "Expand Sub-tasks"}
                         </Button>
 
+                        <Tooltip label="Jira Credentials">
+                            <ActionIcon variant="default" size="lg" onClick={openCredentialsModal} aria-label="Credentials">
+                                <IconKey size={20} />
+                            </ActionIcon>
+                        </Tooltip>
+
                         <Tooltip label="Settings">
                             <ActionIcon variant="default" size="lg" onClick={openGroupsModal} aria-label="Settings">
                                 <IconSettings size={20} />
@@ -587,6 +615,15 @@ export default function App() {
         </Container>
       </AppShell.Main>
       
+      <CredentialsModal 
+        opened={credentialsModalOpen} 
+        onClose={() => {
+            closeCredentialsModal();
+            setHasValidCredentials(true);
+        }} 
+        canClose={hasValidCredentials}
+      />
+
       <Modal 
         opened={groupsModalOpen} 
         onClose={closeGroupsModal} 

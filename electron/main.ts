@@ -84,6 +84,40 @@ async function searchJiraIssues(jql: string, secrets: JiraSecrets) {
     return response.data.issues;
 }
 
+// Check if we have valid credentials saved
+ipcMain.handle('has-credentials', async () => {
+  try {
+    getSecrets();
+    return true;
+  } catch (e) {
+    return false;
+  }
+});
+
+// Save credentials to userData/jira-secrets.json
+ipcMain.handle('save-credentials', async (_event, secrets: JiraSecrets) => {
+  try {
+    const userDataPath = path.join(app.getPath('userData'), 'jira-secrets.json');
+    // Basic validation
+    if (!secrets.host || !secrets.apiToken) {
+       throw new Error("Host and API Token are required");
+    }
+    
+    // Ensure host doesn't have protocol (or do detailed cleanup)
+    // The existing searchJiraIssues helper expects protocol-less host or handles replacment, 
+    // but better to store it clean or let helper handle it.  Helper uses: host.replace(/^https?:\/\//, '')
+    
+    fs.writeFileSync(userDataPath, JSON.stringify(secrets, null, 2), 'utf-8');
+    
+    // Clear cache so new secrets are used next time we fetch fields
+    fieldMapCache = null; 
+    
+    return { success: true };
+  } catch (e: any) {
+    return { success: false, error: e.message };
+  }
+});
+
 ipcMain.handle('jira-get-issue', async (_event, issueId: string) => {
   try {
     const secrets = getSecrets();
