@@ -26,7 +26,6 @@ export function CredentialsModal({ opened, onClose, canClose }: CredentialsModal
                 return;
             }
 
-            // @ts-ignore
             const result = await window.ipcRenderer.invoke('save-credentials', { host, apiToken });
             
             if (result.success) {

@@ -2,6 +2,17 @@
 
 This file tracks the evolution of the project. Copilot should update this file after completing significant tasks.
 
+## 2026-03-17 13:15 - Implement Current Sprint Mode and Cycle Time Highlighting
+* **Goal**: Allow users to query by Sprint, see a backfilled hierarchy of Epics for standard issues, highlight resolved items in the table, and see top aging issues in Sprint mode.
+* **Files Modified**:
+    *   `electron/main.ts`: Added `jira-get-sprint` IPC handler to fetch issues by Sprint name/number, detect missing Epics via `Epic Link` field, and perform a secondary fetch query to backfill the roots. Extracted `mapIssuesToCleanData` for reuse and added `isResolved` mapping.
+    *   `src/utils/transformers.ts`: Updated `IssueTimeline` to include `isResolved` field. Passed it through `processParentsAndChildren` and `processIssueTimeline`.
+    *   `src/components/IssueTreeTable.tsx`: Styled the "Cycle Time" cell with a green background (`var(--mantine-color-green-1)`) when `row.original.isResolved` is true.
+    *   `src/App.tsx`: 
+        *   Added Mode switch (`hierarchy` vs `sprint`) mapping to the different IPC calls.
+        *   Added "Top Aging Open Items" statistics section at the bottom of the sidebar. Filtered for standard items (`!epic`, `!sub-task`) that are open (`!isResolved`) and sorted by `totalCycleTime` descending, taking the top 3.
+* **Outcome**: Verified UI logic compiles. Table highlighting cleanly shows resolved vs open items without hardcoding specific custom statuses.
+
 ## 2026-01-28 10:00 - Implement User Credentials Management
 * **Goal**: allow users to input and save their Jira credentials (Host, Email, Token) directly within the application, rather than relying on a pre-existing JSON file.
 * **Files Modified**: 
@@ -937,3 +948,6 @@ pm test and Lint. User can now granularly exclude specific statuses (like 'Backl
         - Removed "X Items" text.
     - **Table**: Reduced vertical padding in cells by 50% (`paddingTop: 4, paddingBottom: 4`).
 * **Outcome**: `npm run verify` passed. UI is dense, chart export matches UI fonts, and button layout is more intuitive.
+\ n # #   2 0 2 5 - 0 2 - 1 4 \ n   -   F i x e d   J Q L   q u e r y   i n   ' j i r a - g e t - s p r i n t '   h a n d l i n g   n u m e r i c   S p r i n t   I D s   b y   c o n d i t i o n a l l y   o m i t t i n g   q u o t e s . \ n   -   U p d a t e d   ' T o p   A g i n g   O p e n   I t e m s '   s t a t i s t i c s   b l o c k   t o   u s e   ' t i m e l i n e D a t a '   i n s t e a d   o f   r a w   ' a l l I s s u e T i m e l i n e s '   t o   a l i g n   t h e   d i s p l a y e d   c y c l e   t i m e s   w i t h   t h e   t a b l e . 
+ 
+ 

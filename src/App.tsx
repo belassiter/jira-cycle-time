@@ -9,6 +9,7 @@ import { ParentSize } from '@visx/responsive';
 import { processParentsAndChildren, IssueTimeline, filterTimelineStatuses, buildIssueTree, filterTimelineByIssueType } from './utils/transformers';
 import { calculateNextExpanded, buildAdjacencyMap } from './utils/treeUtils';
 import { calculateIssueStats, formatMetric, type SelectedIssueStats, type GroupStatistic } from './utils/stats';
+import { formatWorkDays } from './utils/formatting';
 import { handleToggleWithDescendants } from './utils/selectionLogic';
 import { IssueTreeTable } from './components/IssueTreeTable';
 import { GroupsManager } from './components/GroupsManager';
@@ -51,11 +52,13 @@ export default function App() {
   const [credentialsModalOpen, { open: openCredentialsModal, close: closeCredentialsModal }] = useDisclosure(false);
   const [hasValidCredentials, setHasValidCredentials] = useState(false);
 
+  // Mode Selection
+  const [appMode, setAppMode] = useState<'hierarchy' | 'sprint'>('hierarchy');
+
   // Check credentials on mount
   useEffect(() => {
     const checkCreds = async () => {
         try {
-            // @ts-ignore
             const exists = await window.ipcRenderer.invoke('has-credentials');
             setHasValidCredentials(exists);
             if (!exists) {
@@ -66,7 +69,7 @@ export default function App() {
         }
     };
     checkCreds();
-  }, []);
+  }, [openCredentialsModal]);
 
   // Persistence
   useEffect(() => {
@@ -158,7 +161,10 @@ export default function App() {
     setTimelineData(null);
 
     try {
-      const result = await window.ipcRenderer.getIssue(targetId);
+      const result = appMode === 'hierarchy'
+          ? await window.ipcRenderer.invoke('jira-get-issue', targetId)
+          : await window.ipcRenderer.invoke('jira-get-sprint', targetId);
+
       if (result.success) {
         const timelines = processParentsAndChildren(result.data);
         setAllIssueTimelines(timelines); // Save raw
@@ -539,6 +545,37 @@ export default function App() {
         ) : (
             <Text>Select rows in the table to view combined statistics.</Text>
         )}
+        
+        {appMode === 'sprint' && timelineData && (
+            <>
+                <Divider my="sm" />
+                <Text fw={500} mb="xs">Longest-Running</Text>
+                <Stack gap="xs">
+                    {(() => {
+                        const standards = timelineData.filter(i => {
+                            const type = i.issueType?.toLowerCase() || '';
+                            return type !== 'epic' && type !== 'sub-task' && type !== 'subtask' && !i.isResolved;
+                        });
+                        const top3 = standards.sort((a, b) => b.totalCycleTime - a.totalCycleTime).slice(0, 3);
+                        
+                        if (top3.length === 0) return <Text size="sm" c="dimmed">No open items found.</Text>;
+                        
+                        return top3.map((issue, idx) => (
+                            <Group justify="space-between" key={idx}>
+                                {issue.url ? (
+                                    <Text component="a" href={issue.url} target="_blank" size="sm" c="blue" style={{ textDecoration: 'underline' }}>
+                                        {issue.key}
+                                    </Text>
+                                ) : (
+                                    <Text size="sm">{issue.key}</Text>
+                                )}
+                                <Text size="sm">{formatWorkDays(issue.totalCycleTime)}</Text>
+                            </Group>
+                        ));
+                    })()}
+                </Stack>
+            </>
+        )}
         </div>
         </ScrollArea>
       </AppShell.Navbar>
@@ -551,9 +588,22 @@ export default function App() {
               <Grid align="flex-end">
                 <Grid.Col span={6}>
                     <Group align="flex-end">
+                        <Select 
+                            label="Mode"
+                            data={[
+                                { value: 'hierarchy', label: 'Hierarchy' },
+                                { value: 'sprint', label: 'Current Sprint' }
+                            ]}
+                            value={appMode}
+                            onChange={(val) => {
+                                if (val) setAppMode(val as 'hierarchy' | 'sprint');
+                            }}
+                            style={{ width: 140 }}
+                            allowDeselect={false}
+                        />
                         <TextInput 
-                            label="Jira Issue ID" 
-                            placeholder="e.g. PROJ-123" 
+                            label={appMode === 'hierarchy' ? "Jira Issue ID" : "Sprint Number or Name"} 
+                            placeholder={appMode === 'hierarchy' ? "e.g. PROJ-123" : "e.g. 348 or 'Sprint 5'"} 
                             value={issueId}
                             onChange={(e) => setIssueId(e.target.value)}
                             style={{ flex: 1 }}

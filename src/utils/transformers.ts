@@ -21,6 +21,7 @@ export interface IssueTimeline {
   hasChildren: boolean;
   parentId?: string;
   subRows?: IssueTimeline[]; // For Tree Data tables
+  isResolved?: boolean;
 }
 
 const STATUS_COLORS: Record<string, string> = {
@@ -127,7 +128,8 @@ export function processIssueTimeline(issue: any): Omit<IssueTimeline, 'depth' | 
     issueType,
     issueTypeIconUrl: issue.issueTypeIconUrl,
     segments,
-    totalCycleTime: segments.reduce((sum, s) => sum + s.durationDays, 0)
+    totalCycleTime: segments.reduce((sum, s) => sum + s.durationDays, 0),
+    isResolved: issue.isResolved
   };
 }
 
@@ -194,7 +196,8 @@ export function processParentsAndChildren(flatIssues: any[]): IssueTimeline[] {
         return {
             ...base,
             parentKey: issue.parentKey, // Mapped by backend
-            key: issue.key
+            key: issue.key,
+            isResolved: !!issue.isResolved
         };
     });
 

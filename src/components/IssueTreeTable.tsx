@@ -234,7 +234,15 @@ export function IssueTreeTable({
              if (row.original.key === '__RULER__') {
                 return <Text fw={700} size="sm">Cycle Time</Text>;
             }
-            return <Text size="sm">{formatWorkDays(cell.getValue<number>())}</Text>;
+            return (
+                <Box 
+                    bg={row.original.isResolved ? 'var(--mantine-color-green-1)' : undefined} 
+                    p={4} 
+                    style={{ borderRadius: 4 }}
+                >
+                    <Text size="sm">{formatWorkDays(cell.getValue<number>())}</Text>
+                </Box>
+            );
         }
       }
     ],

@@ -118,6 +118,38 @@ ipcMain.handle('save-credentials', async (_event, secrets: JiraSecrets) => {
   }
 });
 
+function mapIssuesToCleanData(issues: any[], secrets: JiraSecrets, fieldIds: any) {
+  const cleanHost = secrets.host.replace(/^https?:\/\//, '').replace(/\/$/, '');
+  return issues.map((issue: any) => {
+    let parentKey = issue.fields.parent?.key;
+    
+    // If no standard parent, check Epic Link or Parent Link
+    if (!parentKey && fieldIds?.epicLink && issue.fields[fieldIds.epicLink]) {
+      parentKey = issue.fields[fieldIds.epicLink]; // Usually a string Key
+    }
+    if (!parentKey && fieldIds?.parentLink && issue.fields[fieldIds.parentLink]) {
+        // Parent Link can be complex. Typically it's a Box/Object but sometimes a key.
+        // In raw JSON it often looks like { data: { key: ... } } or just the key string?
+        // Safest to check if it's an object with key, or a string.
+        const val = issue.fields[fieldIds.parentLink];
+        parentKey = (typeof val === 'string') ? val : val?.key || val?.data?.key;
+    }
+
+    return {
+      key: issue.key,
+      url: `https://${cleanHost}/browse/${issue.key}`,
+      summary: issue.fields.summary || '',
+      status: issue.fields.status?.name || 'Unknown',
+      created: issue.fields.created,
+      issueType: issue.fields.issuetype?.name || 'Unknown',
+      issueTypeIconUrl: issue.fields.issuetype?.iconUrl,
+      parentKey: parentKey,
+      changelog: issue.changelog,
+      isResolved: !!issue.fields.resolution
+    };
+  });
+}
+
 ipcMain.handle('jira-get-issue', async (_event, issueId: string) => {
   try {
     const secrets = getSecrets();
@@ -149,36 +181,76 @@ ipcMain.handle('jira-get-issue', async (_event, issueId: string) => {
     const issues = await searchJiraIssues(jql, secrets);
 
     // 3. Map to a clean format for frontend
-    const cleanHost = secrets.host.replace(/^https?:\/\//, '').replace(/\/$/, '');
-    const cleanData = issues.map((issue: any) => {
-      let parentKey = issue.fields.parent?.key;
-      
-      // If no standard parent, check Epic Link or Parent Link
-      if (!parentKey && fieldIds?.epicLink && issue.fields[fieldIds.epicLink]) {
-        parentKey = issue.fields[fieldIds.epicLink]; // Usually a string Key
-      }
-      if (!parentKey && fieldIds?.parentLink && issue.fields[fieldIds.parentLink]) {
-          // Parent Link can be complex. Typically it's a Box/Object but sometimes a key.
-          // In raw JSON it often looks like { data: { key: ... } } or just the key string?
-          // Safest to check if it's an object with key, or a string.
-          const val = issue.fields[fieldIds.parentLink];
-          parentKey = (typeof val === 'string') ? val : val?.key || val?.data?.key;
-      }
-
-      return {
-        key: issue.key,
-        url: `https://${cleanHost}/browse/${issue.key}`,
-        summary: issue.fields.summary || '',
-        status: issue.fields.status?.name || 'Unknown',
-        created: issue.fields.created,
-        issueType: issue.fields.issuetype?.name || 'Unknown',
-        issueTypeIconUrl: issue.fields.issuetype?.iconUrl,
-        parentKey: parentKey,
-        changelog: issue.changelog
-      };
-    });
+    const cleanData = mapIssuesToCleanData(issues, secrets, fieldIds);
 
     console.log(`Fetched ${cleanData.length} issues for hierarchy of ${issueId}`);
+
+    return { 
+      success: true, 
+      data: cleanData
+    };
+
+  } catch (error: any) {
+    console.error('Jira API Error:', error.response?.data || error.message);
+    
+    let errorMessage = error.response?.data?.errorMessages?.join(', ') || error.message;
+    if (error.code === 'ENOTFOUND' || error.code === 'ETIMEDOUT' || error.code === 'ECONNREFUSED' || error.message?.includes('Network Error')) {
+      errorMessage += '. If needed, connect to the VPN.';
+    }
+
+    return { 
+      success: false, 
+      error: errorMessage
+    };
+  }
+});
+
+ipcMain.handle('jira-get-sprint', async (_event, sprintNameOrId: string) => {
+  try {
+    const secrets = getSecrets();
+    const fieldIds = await getFieldIds(secrets);
+
+    // 1. Fetch sprint issues
+    const trimmedSprint = sprintNameOrId.trim();
+    const isNumericSprint = /^\d+$/.test(trimmedSprint);
+    const jql = isNumericSprint ? `Sprint = ${trimmedSprint}` : `Sprint = "${trimmedSprint}"`;
+    const issues = await searchJiraIssues(jql, secrets);
+    
+    if (issues.length === 0) {
+        return { success: false, error: `No issues found for sprint "${sprintNameOrId}".` };
+    }
+
+    // 2. Identify missing parent Epics to backfill (Standard issue -> Epic Link)
+    const sprintIssueKeys = new Set(issues.map((i: any) => i.key));
+    const missingEpicKeys = new Set<string>();
+
+    for (const issue of issues) {
+      if (fieldIds?.epicLink && issue.fields[fieldIds.epicLink]) {
+        const epicKey = issue.fields[fieldIds.epicLink];
+        if (!sprintIssueKeys.has(epicKey)) {
+          missingEpicKeys.add(epicKey);
+        }
+      }
+    }
+
+    if (missingEpicKeys.size > 0) {
+      const epicKeysStr = Array.from(missingEpicKeys).join('","');
+      const epicJql = `key in ("${epicKeysStr}")`;
+      const missingEpics = await searchJiraIssues(epicJql, secrets);
+      
+      // Combine avoiding absolute duplicates just in case
+      for (const epic of missingEpics) {
+        if (!sprintIssueKeys.has(epic.key)) {
+            issues.push(epic);
+            sprintIssueKeys.add(epic.key);
+        }
+      }
+    }
+
+    // 3. Map to a clean format for frontend
+    const cleanData = mapIssuesToCleanData(issues, secrets, fieldIds);
+
+    console.log(`Fetched ${cleanData.length} issues for sprint ${sprintNameOrId}`);
 
     return { 
       success: true, 
