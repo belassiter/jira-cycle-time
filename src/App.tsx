@@ -554,7 +554,7 @@ export default function App() {
                     {(() => {
                         const standards = timelineData.filter(i => {
                             const type = i.issueType?.toLowerCase() || '';
-                            return type !== 'epic' && type !== 'sub-task' && type !== 'subtask' && !i.isResolved;
+                            return type !== 'epic' && type !== 'theme' && type !== 'initiative' && type !== 'feature' && type !== 'sub-task' && type !== 'subtask' && !i.isResolved;
                         });
                         const top3 = standards.sort((a, b) => b.totalCycleTime - a.totalCycleTime).slice(0, 3);
                         

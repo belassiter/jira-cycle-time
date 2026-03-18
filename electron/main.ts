@@ -65,15 +65,18 @@ async function searchJiraIssues(jql: string, secrets: JiraSecrets) {
       : `Bearer ${secrets.apiToken}`;
     const host = secrets.host.replace(/^https?:\/\//, '');
   
-    // We need to fetch enough fields to reconstruct the hierarchy
-    // history is in 'changelog'
     console.log(`JIRA-SEARCH: ${jql}`);
 
-    const response = await axios.get(`https://${host}/rest/api/2/search`, {
+    let allIssues: any[] = [];
+    const maxResults = 100;
+    
+    // 1. Fetch first batch to get total
+    const firstResponse = await axios.get(`https://${host}/rest/api/2/search`, {
       params: { 
         jql, 
         expand: 'changelog',
-        maxResults: 500, // Reasonable limit for now
+        startAt: 0,
+        maxResults,
         fields: ['summary', 'status', 'issuetype', 'parent', 'created', '*all'] // *all to ensure we get custom fields
       },
       headers: {
@@ -81,7 +84,48 @@ async function searchJiraIssues(jql: string, secrets: JiraSecrets) {
         'Accept': 'application/json'
       }
     });
-    return response.data.issues;
+    
+    const data = firstResponse.data;
+    if (!data.issues || data.issues.length === 0) {
+        return [];
+    }
+    
+    allIssues = allIssues.concat(data.issues);
+    const total = data.total || allIssues.length;
+    
+    // 2. If there are more issues, fetch the rest in parallel
+    if (total > maxResults) {
+        const remainingRequestsCount = Math.ceil((total - maxResults) / maxResults);
+        const requests = [];
+        
+        for (let i = 0; i < remainingRequestsCount; i++) {
+            const nextStartAt = maxResults + (i * maxResults);
+            requests.push(
+                axios.get(`https://${host}/rest/api/2/search`, {
+                    params: { 
+                        jql, 
+                        expand: 'changelog',
+                        startAt: nextStartAt,
+                        maxResults,
+                        fields: ['summary', 'status', 'issuetype', 'parent', 'created', '*all']
+                    },
+                    headers: {
+                        'Authorization': authHeader,
+                        'Accept': 'application/json'
+                    }
+                })
+            );
+        }
+        
+        const responses = await Promise.all(requests);
+        for (const res of responses) {
+            if (res.data && res.data.issues) {
+                allIssues = allIssues.concat(res.data.issues);
+            }
+        }
+    }
+    
+    return allIssues;
 }
 
 // Check if we have valid credentials saved
@@ -164,18 +208,10 @@ ipcMain.handle('jira-get-issue', async (_event, issueId: string) => {
         return { success: false, error: `Issue ${issueId} not found.` };
     }
 
-    const rootIssue = rootResults[0];
-    const typeName = rootIssue.fields.issuetype?.name;
-    
-    // Explicitly block high-level types
-    if (typeName === 'Initiative' || typeName === 'Theme') {
-            return { 
-            success: false, 
-            error: 'Hierarchy levels above Epic are currently not supported.' 
-        };
-    }
+    // Explicitly block high-level types (above Theme/Initiative) if needed later
+    // For now, Theme and Initiative are allowed and childIssuesOf will fetch standard descendents.
 
-    // 2. If valid, fetch hierarchy
+    // 2. Fetch hierarchy
     // (We could reuse rootResults, but fetching everything in one go is easier for the "OR" logic)
     const jql = `key = "${issueId}" OR issue in childIssuesOf("${issueId}")`;
     const issues = await searchJiraIssues(jql, secrets);

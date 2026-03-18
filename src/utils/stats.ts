@@ -175,7 +175,7 @@ export function calculateIssueStats(
         };
     };
 
-    const isEpic = (t: IssueTimeline) => t.issueType === 'Epic' || t.issueType === 'Feature' || t.issueType === 'Initiative';
+    const isEpic = (t: IssueTimeline) => t.issueType === 'Epic' || t.issueType === 'Feature' || t.issueType === 'Initiative' || t.issueType === 'Theme';
     const isSubtask = (t: IssueTimeline) => t.issueType === 'Sub-task';
     const isStandard = (t: IssueTimeline) => !isEpic(t) && !isSubtask(t);
 
